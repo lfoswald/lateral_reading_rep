@@ -1,0 +1,444 @@
+---
+title: "Model Variations"
+subtitle: "Open code and supplementary material to: Lateral Reading Germany"
+format:
+  html:
+    code-fold: true
+editor: visual
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+---
+
+```{r}
+library(readr)
+library(lme4)
+library(robustlmm)
+library(broom.mixed)
+library(tidyverse)
+library(gridExtra)
+library(PupillometryR)
+library(purrr)
+library(optimx)
+library(broom)
+library(kableExtra)
+library(ggh4x)
+
+data <- read_delim("../data/exp_data.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+data[data == 997] <- NA 
+
+data <- data%>%
+  mutate(phase = relevel(factor(phase), levels = c("pre", "post", "follow-up"), ref = "pre"),
+         source_intent = 2 - source_intent,
+         claim_veracity = ifelse(claim_veracity == 3, NA, claim_veracity),
+         claim_veracity = ifelse(claim_veracity == 1, 0, claim_veracity),
+         claim_veracity = ifelse(claim_veracity == 2, 1, claim_veracity)
+         )
+
+data_prepost <- data %>% filter(phase %in% c("pre", "post"))
+data_prefollow <- data %>% filter(phase %in% c("pre", "follow-up"))
+data_postfollow <- data %>% filter(phase %in% c("post", "follow-up"))
+
+# Model 1i: Source Intent (Pre vs Post)
+model_1i <- lmer(source_intent ~ item_type * phase * treatment +
+                    (1 + item_type + phase | ID) + 
+                    (1 | link_number), data = data_prepost)
+
+# Model 2s: Source Intent (Pre vs Follow-up)
+model_2i <- lmer(source_intent ~ item_type * phase * treatment + 
+                    (1 + item_type + phase | ID) + 
+                    (1 | link_number), data = data_prefollow)
+
+# Model 1v: Claim Veracity (Pre vs Post)
+model_1v <- glmer(claim_veracity ~ item_type * phase * treatment + 
+                    (1 + item_type + phase | ID) + 
+                    (1  | link_number), data = data_prepost)
+
+# Model 2v: Claim Veracity (Pre vs Post vs Follow-up)
+model_2v <- glmer(claim_veracity ~ item_type * phase * treatment +
+                   (1 + item_type + phase | ID) + 
+                   (1 | link_number), data = data_prefollow)
+
+
+#################### Plots #####################################################
+
+# Models 1s and 1c
+
+trustworthiness_tidy <- tidy(model_1i) %>%
+  mutate(rating_type = "Source Intent")%>%
+  filter(effect == "fixed")
+
+credibility_tidy <- tidy(model_1v) %>%
+  mutate(rating_type = "Claim Veracity")%>%
+  filter(effect == "fixed")
+
+trustworthiness_tidy2 <- tidy(model_2i) %>%
+  mutate(rating_type = "Source Intent")%>%
+  filter(effect == "fixed")
+
+credibility_tidy2 <- tidy(model_2v) %>%
+  mutate(rating_type = "Claim Veracity")%>%
+  filter(effect == "fixed")
+
+model_coefficients <- bind_rows(trustworthiness_tidy, credibility_tidy)
+model_coefficients2 <- bind_rows(trustworthiness_tidy2, credibility_tidy2)
+
+# numeric confidence intervals 
+model_coefficients$ci_lower <- model_coefficients$estimate - model_coefficients$std.error*-qnorm((1-0.90)/2)
+model_coefficients$ci_upper <- model_coefficients$estimate + model_coefficients$std.error*-qnorm((1-0.90)/2)
+model_coefficients2$ci_lower <- model_coefficients2$estimate - model_coefficients2$std.error*-qnorm((1-0.90)/2)
+model_coefficients2$ci_upper <- model_coefficients2$estimate + model_coefficients2$std.error*-qnorm((1-0.90)/2)
+
+#### Combined Plot ####
+
+# Combine both models
+model_sc_combined <- bind_rows(
+  model_coefficients %>%
+    mutate(phase = "1. Pre-Post"),
+  model_coefficients2 %>%
+    mutate(phase = "2. Pre-Followup")) %>%
+  mutate(term = case_when(
+    term == "item_type:phasepost:treatmentlateral_reading" ~ "Lateral Reading",
+    term == "item_type:phasepost:treatmentonline_search" ~ "Online Search",
+    term == "item_type:phasefollow-up:treatmentlateral_reading" ~ "Lateral Reading",
+    term == "item_type:phasefollow-up:treatmentonline_search" ~ "Online Search",
+    .default = as.character(term)
+  )) %>%
+  filter(term == "Lateral Reading" | term == "Online Search")
+
+interval <- -qnorm((1-0.90)/2)  # 90% multiplier for CI
+
+effects_sc_combined <- ggplot(model_sc_combined, aes(x = estimate, y = term, colour = phase)) +
+  geom_vline(xintercept = 0, linetype="dashed", colour = "black") + 
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = estimate - std.error*interval, xmax = estimate + std.error*interval), height = 0) +
+  facet_grid(rating_type ~ phase, scales = "free") +
+  labs(title = "Pre-Post and Pre-Follow-up Effects on Discernment",
+       x = "Coefficient Estimate, 90% CI",
+       y = "") +
+  scale_color_manual(values = c("1. Pre-Post" = "black", "2. Pre-Followup" = "grey")) +
+  theme_bw(base_size=12) +
+  coord_flip() +
+  theme(legend.position = "bottom") +
+  guides(color = "none") 
+
+effects_sc_combined
+
+###### General Skepticism ######
+
+# Model 1s: Source Trustworthiness (Pre vs Post)
+model_1s <- lmer(source_trustworthiness ~  phase * treatment + 
+                   (1 + phase | ID) + 
+                   (1 | link_number), data = data %>% filter(phase %in% c("pre", "post")))
+
+# sanity check - what's going on here with the ratings?
+filtered_data <- data %>% filter(phase %in% c("pre", "post"))
+mean_table <- filtered_data %>%
+  group_by(phase, treatment) %>%
+  summarise(mean_source_trustworthiness = mean(source_trustworthiness, na.rm = TRUE)) %>%
+  ungroup()%>%
+  pivot_wider(names_from = phase, values_from = mean_source_trustworthiness)
+
+
+# Model 2s: Source Trustworthiness (Pre vs Follow-up)
+model_2s <- lmer(source_trustworthiness ~ phase * treatment + 
+                   (1 + phase | ID) + 
+                   (1 | link_number), data = data %>% filter(phase %in% c("pre", "follow-up")))
+
+# Model 1c: Claim Credibility (Pre vs Post)
+model_1c <- lmer(claim_credibility ~ phase * treatment + source_familiarity + 
+                   (1 +  phase | ID) + 
+                   (1 | link_number), data = data %>% filter(phase %in% c("pre", "post")))
+
+# Model 2c: Claim Credibility (Pre vs Post vs Follow-up)
+model_2c <- lmer(claim_credibility ~ phase * treatment + source_familiarity + 
+                   (1  + phase | ID) + 
+                   (1 | link_number), data = data %>% filter(phase %in% c("pre", "follow-up")))
+
+trustworthiness_tidy <- tidy(model_1s) %>%
+  mutate(rating_type = "Source Trustworthiness")%>%
+  filter(effect == "fixed")
+
+credibility_tidy <- tidy(model_1c) %>%
+  mutate(rating_type = "Claim Credibility")%>%
+  filter(effect == "fixed")
+
+trustworthiness_tidy2 <- tidy(model_2s) %>%
+  mutate(rating_type = "Source Trustworthiness")%>%
+  filter(effect == "fixed")
+
+credibility_tidy2 <- tidy(model_2c) %>%
+  mutate(rating_type = "Claim Credibility")%>%
+  filter(effect == "fixed")
+
+model_coefficients <- bind_rows(trustworthiness_tidy, credibility_tidy)
+model_coefficients2 <- bind_rows(trustworthiness_tidy2, credibility_tidy2)
+
+# Combine both models
+model_sc_combined <- bind_rows(
+  model_coefficients %>%
+    mutate(phase = "1. Pre-Post"),
+  model_coefficients2 %>%
+    mutate(phase = "2. Pre-Followup")) %>%
+  mutate(term = case_when(
+    term == "phasepost:treatmentlateral_reading" ~ "Lateral Reading",
+    term == "phasepost:treatmentonline_search" ~ "Online Search",
+    term == "phasefollow-up:treatmentlateral_reading" ~ "Lateral Reading",
+    term == "phasefollow-up:treatmentonline_search" ~ "Online Search",
+    .default = as.character(term)
+  )) %>%
+  filter(term == "Lateral Reading" | term == "Online Search")
+
+interval <- -qnorm((1-0.90)/2)  
+
+effects_sc_combined_skept <- ggplot(model_sc_combined, aes(x = estimate, y = term, colour = phase)) +
+  geom_vline(xintercept = 0, linetype="dashed", colour = "black") + 
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = estimate - std.error*interval, xmax = estimate + std.error*interval), height = 0) +
+  facet_grid(rating_type ~ phase, scales = "free") +
+  labs(title = "Pre-Post and Pre-Follow-up General Skepticism Effects",
+       x = "Coefficient Estimate, 90% CI",
+       y = "") +
+  scale_color_manual(values = c("1. Pre-Post" = "black", "2. Pre-Followup" = "grey")) +
+  theme_bw(base_size=12) +
+  coord_flip() +
+  theme(legend.position = "bottom") +
+  guides(color = "none") 
+
+effects_sc_combined_skept
+
+##### Trustworthy and Untrustworthy Items Separately ####
+
+data$item_type_factor <- factor(data$item_type, levels = c(-1, 1), labels = c("false", "true"))
+
+#############################
+## item_type == -1 (false)
+#############################
+
+data_minus <- data %>% filter(item_type == -1)
+data_minus_prepost  <- data_minus %>% filter(phase %in% c("pre", "post"))
+data_minus_prefollow <- data_minus %>% filter(phase %in% c("pre", "follow-up"))
+
+# Pre vs. Post models
+model_1s_minus <- lmer(source_trustworthiness ~ item_type * phase * treatment +
+                         (1 + phase + item_type | ID) + (1 | link_number),
+                       data = data_minus_prepost)
+model_1c_minus <- lmer(claim_credibility ~ item_type * phase * treatment +
+                         (1 + phase + item_type | ID) + (1 | link_number),
+                       data = data_minus_prepost)
+
+# Pre vs. Follow-up models
+model_2s_minus <- lmer(source_trustworthiness ~ item_type * phase * treatment +
+                         (1 + phase + item_type | ID) + (1 | link_number),
+                       data = data_minus_prefollow)
+model_2c_minus <- lmer(claim_credibility ~ item_type * phase * treatment +
+                         (1 + phase + item_type | ID) + (1 | link_number),
+                       data = data_minus_prefollow)
+
+tidy_1s_minus <- tidy(model_1s_minus) %>% 
+  mutate(rating_type    = "Source Trustworthiness",
+         phase_analysis = "Pre-Post",
+         item_type      = "false") %>% 
+  filter(effect == "fixed")
+tidy_1c_minus <- tidy(model_1c_minus) %>% 
+  mutate(rating_type    = "Claim Credibility",
+         phase_analysis = "Pre-Post",
+         item_type      = "false") %>% 
+  filter(effect == "fixed")
+tidy_2s_minus <- tidy(model_2s_minus) %>% 
+  mutate(rating_type    = "Source Trustworthiness",
+         phase_analysis = "Pre-Followup",
+         item_type      = "false") %>% 
+  filter(effect == "fixed")
+tidy_2c_minus <- tidy(model_2c_minus) %>% 
+  mutate(rating_type    = "Claim Credibility",
+         phase_analysis = "Pre-Followup",
+         item_type      = "false") %>% 
+  filter(effect == "fixed")
+
+#############################
+## Analysis for item_type == 1 (true)
+#############################
+
+# Subset the data for item_type == 1
+data_plus <- data %>% filter(item_type == 1)
+data_plus_prepost  <- data_plus %>% filter(phase %in% c("pre", "post"))
+data_plus_prefollow <- data_plus %>% filter(phase %in% c("pre", "follow-up"))
+
+# Pre - Post models
+model_1s_plus <- lmer(source_trustworthiness ~ item_type * phase * treatment +
+                        (1 + phase + item_type | ID) + (1 | link_number),
+                      data = data_plus_prepost)
+model_1c_plus <- lmer(claim_credibility ~ item_type * phase * treatment +
+                        (1 + phase + item_type | ID) + (1 | link_number),
+                      data = data_plus_prepost)
+
+# Pre vs. Follow-up models
+model_2s_plus <- lmer(source_trustworthiness ~ item_type * phase * treatment +
+                        (1 + phase + item_type | ID) + (1 | link_number),
+                      data = data_plus_prefollow)
+model_2c_plus <- lmer(claim_credibility ~ item_type * phase * treatment +
+                        (1 + phase + item_type | ID) + (1 | link_number),
+                      data = data_plus_prefollow)
+
+tidy_1s_plus <- tidy(model_1s_plus) %>% 
+  mutate(rating_type    = "Source Trustworthiness",
+         phase_analysis = "Pre-Post",
+         item_type      = "true") %>% 
+  filter(effect == "fixed")
+tidy_1c_plus <- tidy(model_1c_plus) %>% 
+  mutate(rating_type    = "Claim Credibility",
+         phase_analysis = "Pre-Post",
+         item_type      = "true") %>% 
+  filter(effect == "fixed")
+tidy_2s_plus <- tidy(model_2s_plus) %>% 
+  mutate(rating_type    = "Source Trustworthiness",
+         phase_analysis = "Pre-Followup",
+         item_type      = "true") %>% 
+  filter(effect == "fixed")
+tidy_2c_plus <- tidy(model_2c_plus) %>% 
+  mutate(rating_type    = "Claim Credibility",
+         phase_analysis = "Pre-Followup",
+         item_type      = "true") %>% 
+  filter(effect == "fixed")
+
+analysis_results <- bind_rows(tidy_1s_minus, tidy_1c_minus, tidy_2s_minus, tidy_2c_minus,
+                              tidy_1s_plus, tidy_1c_plus, tidy_2s_plus, tidy_2c_plus)
+
+
+analysis_results <- analysis_results %>%
+  mutate(term_clean = case_when(
+    term %in% c("phasepost:treatmentlateral_reading", "phasefollow-up:treatmentlateral_reading") ~ "LR",
+    term %in% c("phasepost:treatmentonline_search", "phasefollow-up:treatmentonline_search") ~ "OS",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(term_clean))
+
+interval <- -qnorm((1-0.90)/2)
+analysis_results <- analysis_results %>%
+  mutate(ci_lower = estimate - std.error * interval,
+         ci_upper = estimate + std.error * interval)
+
+
+effects_sc_combined_type <- ggplot(analysis_results, 
+                                   aes(x = estimate, y = term_clean, colour = phase_analysis)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0) +
+  facet_grid(rating_type ~ item_type + phase_analysis, scales = "free") +
+  labs(title = "Effects on Ratings by Item Type",
+       x = "Coefficient Estimate, 90% CI", 
+       y = "") +
+  scale_color_manual(values = c("Pre-Post" = "black", "Pre-Followup" = "grey")) +
+  theme_bw(base_size = 12) +
+  coord_flip() +
+  theme(legend.position = "bottom") +
+  guides(color = "none")
+
+effects_sc_combined_type
+
+
+#### only pre-post
+
+analysis_results <- bind_rows(tidy_1s_minus, tidy_1c_minus,
+                              tidy_1s_plus, tidy_1c_plus)
+
+analysis_results <- analysis_results %>%
+  mutate(term_clean = case_when(
+    term %in% c("phasepost:treatmentlateral_reading", "phasefollow-up:treatmentlateral_reading") ~ "Lateral Reading",
+    term %in% c("phasepost:treatmentonline_search", "phasefollow-up:treatmentonline_search") ~ "Online Search",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(term_clean))
+
+interval <- -qnorm((1-0.90)/2)
+analysis_results <- analysis_results %>%
+  mutate(ci_lower = estimate - std.error * interval,
+         ci_upper = estimate + std.error * interval)
+
+
+
+effects_sc_combined_type <- ggplot(analysis_results, 
+                                   aes(x = estimate, y = term_clean)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
+  geom_point(size = 3, colour = "black") +
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0) +
+  facet_grid2(rating_type ~ item_type, scales = "free",
+             strip = strip_themed(background_x = list(false = element_rect(fill = "#d7263d"),
+                 true = element_rect(fill = "#1b998b")))
+             ) +
+  labs(title = "Effects on ratings by item type",
+       x = "Coefficient estimate, 90% CI", 
+       y = "") +
+  theme_bw(base_size = 12) +
+  coord_flip() +
+  theme(strip.text.x = element_text(face = "bold", size = 12, color = "white"),)+
+  guides(color = "none")
+
+effects_sc_combined_type
+
+```
+
+### Statistical test of W1 debriefing "effect"
+
+Post vs. Follow-up contrasts separately for each condition
+
+```{r}
+data_postfollow <- data_postfollow %>%
+  mutate(phase = factor(phase, levels = c("pre", "post", "follow-up")),
+    treatment = factor(treatment,
+                       levels = c("control", "lateral_reading", "online_search")))
+
+data_postfollow$ST_discernment <- data_postfollow$source_trustworthiness*data_postfollow$item_type
+model_debriefing <- lmer(ST_discernment ~ phase * treatment +
+                    (1 + phase | ID) + 
+                    (1 | link_number), data = data_postfollow)
+
+model_refit <- refit(model_debriefing)
+
+beta <- fixef(model_debriefing)
+
+est_control <- beta["phasefollow-up"]
+est_lateral <- beta["phasefollow-up"] + beta["phasefollow-up:treatmentlateral_reading"]
+est_online  <- beta["phasefollow-up"] + beta["phasefollow-up:treatmentonline_search"]
+
+results_simple <- tibble(treatment = c("control", "lateral_reading", "online_search"),
+  estimate  = c(est_control, est_lateral, est_online))
+
+V <- vcov(model_refit)
+
+get_se <- function(main, inter = NULL) {
+  v_main <- V[main, main]
+  if (is.null(inter) || !(inter %in% rownames(V))) {
+    return(sqrt(v_main))
+  }
+  v_int  <- V[inter, inter]
+  cov_mi <- V[main, inter]
+  sqrt(v_main + v_int + 2*cov_mi)
+}
+
+se_control <- get_se("phasefollow-up")
+se_lateral <- get_se("phasefollow-up", "phasefollow-up:treatmentlateral_reading")
+se_online  <- get_se("phasefollow-up", "phasefollow-up:treatmentonline_search")
+
+df_resid <- df.residual(model_refit)
+
+results_full <- tibble(
+  treatment = c("control", "lateral_reading", "online_search"),
+  estimate  = c(est_control, est_lateral, est_online),
+  se        = c(se_control, se_lateral, se_online)) %>%
+  mutate( t_value = estimate / se,
+    df      = df_resid,
+    p_value = 2 * pt(-abs(t_value), df),
+    ci_lower = estimate - qt(0.95, df) * se,
+    ci_upper = estimate + qt(0.95, df) * se)
+
+results_full %>%
+  select(treatment, estimate, se, ci_lower, ci_upper, t_value, p_value) %>%
+  kbl(caption = "Results of treatment contrasts (post vs. follow-up) with 90% CIs",format = "html",digits = 3,
+    col.names = c("Treatment", "Estimate", "SE", "90% CI Lower", "90% CI Upper", "t-value", "p-value")) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+```

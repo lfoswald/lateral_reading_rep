@@ -1,0 +1,890 @@
+---
+title: "Descriptives on Items and Persons"
+subtitle: "Open code and supplementary material to: Lateral Reading Germany"
+format:
+  html:
+    code-fold: true
+editor: visual
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+library(gridExtra)
+library(PupillometryR)
+library(purrr)
+library(estimatr)
+library(marginaleffects)
+library(sf)
+library(kableExtra)
+library(broom)
+
+data <- read_delim("../data/exp_data.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+data[data == 997] <- NA 
+
+# drop NA ratings from wave 2
+data <- data%>%
+  drop_na(source_trustworthiness)
+
+data_discernment <- data%>%
+  mutate(correct_rating = ifelse(item_type == -1 & source_trustworthiness < 0 |
+                                   item_type == 1 & source_trustworthiness > 0, 1, 0))
+
+data_individuals <- data_discernment%>%
+  group_by(ID)%>%
+  mutate(prop_correct = mean(correct_rating, na.rm = T),
+         prop_pre = mean(ifelse(phase == "pre", correct_rating, NA), na.rm = TRUE),
+         prop_post = mean(ifelse(phase %in% c("post", "follow-up"), correct_rating, NA), na.rm = TRUE),
+         diff_pre_post = prop_post - prop_pre)%>%
+  slice(1)%>%
+  mutate(across(everything(), ~ ifelse(.x %in% c(98, 99, 998, 999, 997, -9, -8, 777), NA, .x)))%>%
+  mutate(vote_choice1 = factor(vote2_2, levels = 1:9, 
+                               labels = c("Vote: CDU", "Vote: SPD", "Vote: Die Grünen", 
+                                          "Vote: FDP", "Vote: Die Linke", "Vote: BSW", "Vote: AfD", "Vote: other", "Vote: other")),
+         vote_choice2 = factor(vote2_2, levels = 1:9, 
+                               labels = c("CDU", "SPD", "Die Grünen", 
+                                          "FDP", "Die Linke", "BSW", "AfD", "Other", "Other")),
+         
+         east_west = factor(case_when(Bundesland <= 10 ~ "Bundesland: west",
+                                      Bundesland >= 11 & Bundesland <= 16 ~ "Bundesland: east", TRUE ~ NA_character_),levels = c("Bundesland: west", "Bundesland: east")),
+         education = factor(case_when(Schulabschluss == 4 ~ "Education: high",
+                                      Schulabschluss %in% c(1, 2, 3, 5) ~ "Education: low",
+                                              TRUE ~ NA_character_),levels = c("Education: low", "Education: high")),
+         
+         education_cat = factor(case_when(Bildungsabschluss == 5 ~ "High education", Schulabschluss %in% c(1, 2, 3, 5) ~ "Low education",
+                                       (Schulabschluss == 4 | Bildungsabschluss == 4) ~ "Medium education", TRUE ~ NA_character_),
+                                       levels = c("Low education","Medium education","High education")),
+         children = factor(case_when(parent_1 == 1 ~ "Children: yes", 
+                                     parent_1 == 2 ~ "Children: no",
+                                     TRUE ~ NA_character_),levels = c("Children: no", "Children: yes")),
+         urban_cat = factor(case_when(Umfeld == 1 ~ "Environment: urban", 
+                                      Umfeld == 2 ~ "Environment: suburban",
+                                      Umfeld == 3 ~ "Environment: rural",
+                                      TRUE ~ NA_character_), levels = c("Environment: rural","Environment: suburban","Environment: urban")),
+         urban = as.numeric(case_when(Umfeld == 1 ~ "3", 
+                                      Umfeld == 2 ~ "2",
+                                      Umfeld == 3 ~ "1",
+                                      TRUE ~ NA_character_)),
+         migration = factor(case_when(migration == 1 ~ "Migration: yes",
+                                      migration == 2 ~ "Migration: no",
+                                      TRUE ~ NA_character_),levels = c("Migration: no", "Migration: yes")),
+         gender = factor(case_when(Geschlecht == 1 ~ "Gender: male",
+                                   Geschlecht == 2 ~ "Gender: female",
+                                   TRUE ~ NA_character_),levels = c("Gender: female", "Gender: male")),
+         household_income = z_hinc,
+         
+         social_media = online3,
+         
+         social_media_cat = factor(ifelse(online3 >= 5, "Social media use: high", "Social media use: low")),
+         
+         political_interest = q_pol_interest,
+         left_right = sl1_1, 
+         AfD_rating = pol3d7_1,
+         
+         AfD_rating_cat = factor(case_when(pol3d7_1 < 2 ~ "AfD rating: low",
+                                           pol3d7_1 > 6 ~ "AfD rating: high", 
+                                           pol3d7_1 >= 2 & pol3d7_1 <= 6 ~ "AfD rating: neutral",
+                                           TRUE ~ NA_character_), levels = c("AfD rating: low", 
+                                                                             "AfD rating: neutral", "AfD rating: high")),
+         
+         knowledge_efficacy = (vote4_1 + vote4_1 + vote4_1)/3,
+         att_regulate_imigration = issues1_1,
+         att_nato_important = issues1_2,
+         att_mitigate_climatec = issues1_3,
+         att_support_ukraine = issues1_4,
+         att_govh_covid_well = issues1_5,
+         att_satisf_democracy = issues1_6,
+         trust_politics = trust1_1,
+         trust_public_broadcast = trust1_2,
+         trust_private_media = trust1_3,
+         trust_social_media = trust1_4,
+         trust_science = trust1_5,
+         trust_people = trust1_6,
+         trust_blogs_YT = trust1_7,
+         
+         att_regulate_imigration_cat = factor(ifelse(issues1_1 > 3, "Regulate immigration: yes", "Regulate immigration: no")),
+        att_nato_important_cat = factor(ifelse(issues1_2 > 3, "NATO important: yes", "NATO important: no")),
+        att_mitigate_climatec_cat = factor(ifelse(issues1_3 > 3, "Mitigate climate change: yes", "Mitigate climate change: no")),
+        att_support_ukraine_cat = factor(ifelse(issues1_4 > 3, "Support Urkaine: yes", "Support Urkaine: no")),
+        att_govh_covid_well_cat = factor(ifelse(issues1_5 > 3, "Government Covid response: good", "Government Covid response: poor")),
+        att_satisf_democracy_cat = factor(ifelse(issues1_6 > 3, "Satisfaction w. democracy: high", "Satisfaction w. democracy: low")),
+        trust_politics_cat = factor(ifelse(trust1_1 > 3, "Trust in politics: high", "Trust in politics: low")),
+        trust_public_broadcast_cat = factor(ifelse(trust1_2 > 3, "Trust in public broadcasters: high", "Trust in public broadcasters: low")),
+        trust_private_media_cat = factor(ifelse(trust1_3 > 3, "Trust in private media: high", "Trust in private media: low")),
+        trust_social_media_cat = factor(ifelse(trust1_4 > 3, "Trust in social media: high", "Trust in social media: low")),
+        trust_science_cat = factor(ifelse(trust1_5 > 3, "Trust in science: high", "Trust in science: low")),
+        trust_people_cat = factor(ifelse(trust1_6 > 3, "Trust in people: high", "Trust in people: low")),
+        trust_blogs_YT_cat = factor(ifelse(trust1_7 > 3, "Trust in blogs / YouTube: high", "Trust in blogs / YouTube: low")),
+    
+         political_interest_cat = factor(ifelse(political_interest >= 4, "Political interest: high","Political interest: low")),
+         household_income_cat = factor(ifelse(household_income > 6, "Income: high", "Income: low")),
+
+         left_right_cat = factor(case_when(left_right < 4 ~ "Political orientation: left",
+                                   left_right > 3 & left_right < 9 ~ "Political orientation: center",
+                                   left_right > 8 ~ "Political orientation: right"), levels = c("Political orientation: left",
+                                                                                               "Political orientation: center",
+                                                                                               "Political orientation: right")),
+
+         age_cat = factor(case_when(age < 40 ~ "Age: <40",
+                                    age > 40 & age < 61 ~ "Age: 40-60",
+                                    age > 60 ~ "Age: >60"), levels = c("Age: <40","Age: 40-60","Age: >60")))
+
+
+
+##### limited to pre-treatment period
+
+data_individuals_pre <- data_discernment%>%
+  filter(phase == "pre")%>%
+  group_by(ID)%>%
+  mutate(prop_correct = mean(correct_rating, na.rm = T))%>%
+  slice(1)%>%
+  mutate(across(everything(), ~ ifelse(.x %in% c(98, 99, 998, 999, 997, -9, -8, 777), NA, .x)))%>%
+  mutate(vote_choice1 = factor(vote2_2, levels = 1:9, 
+                               labels = c("Vote: CDU", "Vote: SPD", "Vote: Die Grünen", 
+                                          "Vote: FDP", "Vote: Die Linke", "Vote: BSW", "Vote: AfD", "Vote: other", "Vote: other")),
+         vote_choice2 = factor(vote2_2, levels = 1:9, 
+                               labels = c("CDU", "SPD", "Die Grünen", 
+                                          "FDP", "Die Linke", "BSW", "AfD", "Other", "Other")),
+         
+         east_west = factor(case_when(Bundesland <= 10 ~ "Bundesland: west",
+                                      Bundesland >= 11 & Bundesland <= 16 ~ "Bundesland: east", TRUE ~ NA_character_),levels = c("Bundesland: west", "Bundesland: east")),
+         education = factor(case_when(Schulabschluss == 4 ~ "Education: high",
+                                      Schulabschluss %in% c(1, 2, 3, 5) ~ "Education: low",
+                                              TRUE ~ NA_character_),levels = c("Education: low", "Education: high")),
+         
+         education_cat = factor(case_when(Bildungsabschluss == 5 ~ "High education", Schulabschluss %in% c(1, 2, 3, 5) ~ "Low education",
+                                       (Schulabschluss == 4 | Bildungsabschluss == 4) ~ "Medium education", TRUE ~ NA_character_),
+                                       levels = c("Low education","Medium education","High education")),
+         children = factor(case_when(parent_1 == 1 ~ "Children: yes", 
+                                     parent_1 == 2 ~ "Children: no",
+                                     TRUE ~ NA_character_),levels = c("Children: no", "Children: yes")),
+         urban_cat = factor(case_when(Umfeld == 1 ~ "Environment: urban", 
+                                      Umfeld == 2 ~ "Environment: suburban",
+                                      Umfeld == 3 ~ "Environment: rural",
+                                      TRUE ~ NA_character_), levels = c("Environment: rural","Environment: suburban","Environment: urban")),
+         urban = as.numeric(case_when(Umfeld == 1 ~ "3", 
+                                      Umfeld == 2 ~ "2",
+                                      Umfeld == 3 ~ "1",
+                                      TRUE ~ NA_character_)),
+         migration = factor(case_when(migration == 1 ~ "Migration: yes",
+                                      migration == 2 ~ "Migration: no",
+                                      TRUE ~ NA_character_),levels = c("Migration: no", "Migration: yes")),
+         gender = factor(case_when(Geschlecht == 1 ~ "Gender: male",
+                                   Geschlecht == 2 ~ "Gender: female",
+                                   TRUE ~ NA_character_),levels = c("Gender: female", "Gender: male")),
+         household_income = z_hinc,
+         
+         social_media = online3,
+         
+         social_media_cat = factor(ifelse(online3 >= 5, "Social media use: high", "Social media use: low")),
+         
+         political_interest = q_pol_interest,
+         left_right = sl1_1, 
+         AfD_rating = pol3d7_1,
+         
+         AfD_rating_cat = factor(case_when(pol3d7_1 < 2 ~ "AfD rating: low",
+                                           pol3d7_1 > 6 ~ "AfD rating: high", 
+                                           pol3d7_1 >= 2 & pol3d7_1 <= 6 ~ "AfD rating: neutral",
+                                           TRUE ~ NA_character_), levels = c("AfD rating: low", 
+                                                                             "AfD rating: neutral", "AfD rating: high")),
+         
+         knowledge_efficacy = (vote4_1 + vote4_1 + vote4_1)/3,
+         att_regulate_imigration = issues1_1,
+         att_nato_important = issues1_2,
+         att_mitigate_climatec = issues1_3,
+         att_support_ukraine = issues1_4,
+         att_govh_covid_well = issues1_5,
+         att_satisf_democracy = issues1_6,
+         trust_politics = trust1_1,
+         trust_public_broadcast = trust1_2,
+         trust_private_media = trust1_3,
+         trust_social_media = trust1_4,
+         trust_science = trust1_5,
+         trust_people = trust1_6,
+         trust_blogs_YT = trust1_7,
+         
+         att_regulate_imigration_cat = factor(ifelse(issues1_1 > 3, "Regulate immigration: yes", "Regulate immigration: no")),
+        att_nato_important_cat = factor(ifelse(issues1_2 > 3, "NATO important: yes", "NATO important: no")),
+        att_mitigate_climatec_cat = factor(ifelse(issues1_3 > 3, "Mitigate climate change: yes", "Mitigate climate change: no")),
+        att_support_ukraine_cat = factor(ifelse(issues1_4 > 3, "Support Urkaine: yes", "Support Urkaine: no")),
+        att_govh_covid_well_cat = factor(ifelse(issues1_5 > 3, "Government Covid response: good", "Government Covid response: poor")),
+        att_satisf_democracy_cat = factor(ifelse(issues1_6 > 3, "Satisfaction w. democracy: high", "Satisfaction w. democracy: low")),
+        trust_politics_cat = factor(ifelse(trust1_1 > 3, "Trust in politics: high", "Trust in politics: low")),
+        trust_public_broadcast_cat = factor(ifelse(trust1_2 > 3, "Trust in public broadcasters: high", "Trust in public broadcasters: low")),
+        trust_private_media_cat = factor(ifelse(trust1_3 > 3, "Trust in private media: high", "Trust in private media: low")),
+        trust_social_media_cat = factor(ifelse(trust1_4 > 3, "Trust in social media: high", "Trust in social media: low")),
+        trust_science_cat = factor(ifelse(trust1_5 > 3, "Trust in science: high", "Trust in science: low")),
+        trust_people_cat = factor(ifelse(trust1_6 > 3, "Trust in people: high", "Trust in people: low")),
+        trust_blogs_YT_cat = factor(ifelse(trust1_7 > 3, "Trust in blogs / YouTube: high", "Trust in blogs / YouTube: low")),
+    
+         political_interest_cat = factor(ifelse(political_interest >= 4, "Political interest: high","Political interest: low")),
+         household_income_cat = factor(ifelse(household_income > 6, "Income: high", "Income: low")),
+
+         left_right_cat = factor(case_when(left_right < 4 ~ "Political orientation: left",
+                                   left_right > 3 & left_right < 9 ~ "Political orientation: center",
+                                   left_right > 8 ~ "Political orientation: right"), levels = c("Political orientation: left",
+                                                                                               "Political orientation: center",
+                                                                                               "Political orientation: right")),
+
+         age_cat = factor(case_when(age < 40 ~ "Age: <40",
+                                    age > 40 & age < 61 ~ "Age: 40-60",
+                                    age > 60 ~ "Age: >60"), levels = c("Age: <40","Age: 40-60","Age: >60")))
+
+
+
+##### limited to post-treatment period
+
+data_individuals_post <- data_discernment%>%
+  filter(phase != "pre")%>% 
+  group_by(ID)%>%
+  mutate(prop_correct = mean(correct_rating, na.rm = T))%>%
+  slice(1)%>%
+  mutate(across(everything(), ~ ifelse(.x %in% c(98, 99, 998, 999, 997, -9, -8, 777), NA, .x)))%>%
+  mutate(vote_choice1 = factor(vote2_2, levels = 1:9, 
+                               labels = c("Vote: CDU", "Vote: SPD", "Vote: Die Grünen", 
+                                          "Vote: FDP", "Vote: Die Linke", "Vote: BSW", "Vote: AfD", "Vote: other", "Vote: other")),
+         vote_choice2 = factor(vote2_2, levels = 1:9, 
+                               labels = c("CDU", "SPD", "Die Grünen", 
+                                          "FDP", "Die Linke", "BSW", "AfD", "Other", "Other")),
+         
+         east_west = factor(case_when(Bundesland <= 10 ~ "Bundesland: west",
+                                      Bundesland >= 11 & Bundesland <= 16 ~ "Bundesland: east", TRUE ~ NA_character_),levels = c("Bundesland: west", "Bundesland: east")),
+         education = factor(case_when(Schulabschluss == 4 ~ "Education: high",
+                                      Schulabschluss %in% c(1, 2, 3, 5) ~ "Education: low",
+                                              TRUE ~ NA_character_),levels = c("Education: low", "Education: high")),
+         
+         education_cat = factor(case_when(Bildungsabschluss == 5 ~ "High education", Schulabschluss %in% c(1, 2, 3, 5) ~ "Low education",
+                                       (Schulabschluss == 4 | Bildungsabschluss == 4) ~ "Medium education", TRUE ~ NA_character_),
+                                       levels = c("Low education","Medium education","High education")),
+         children = factor(case_when(parent_1 == 1 ~ "Children: yes", 
+                                     parent_1 == 2 ~ "Children: no",
+                                     TRUE ~ NA_character_),levels = c("Children: no", "Children: yes")),
+         urban_cat = factor(case_when(Umfeld == 1 ~ "Environment: urban", 
+                                      Umfeld == 2 ~ "Environment: suburban",
+                                      Umfeld == 3 ~ "Environment: rural",
+                                      TRUE ~ NA_character_), levels = c("Environment: rural","Environment: suburban","Environment: urban")),
+         urban = as.numeric(case_when(Umfeld == 1 ~ "3", 
+                                      Umfeld == 2 ~ "2",
+                                      Umfeld == 3 ~ "1",
+                                      TRUE ~ NA_character_)),
+         migration = factor(case_when(migration == 1 ~ "Migration: yes",
+                                      migration == 2 ~ "Migration: no",
+                                      TRUE ~ NA_character_),levels = c("Migration: no", "Migration: yes")),
+         gender = factor(case_when(Geschlecht == 1 ~ "Gender: male",
+                                   Geschlecht == 2 ~ "Gender: female",
+                                   TRUE ~ NA_character_),levels = c("Gender: female", "Gender: male")),
+         household_income = z_hinc,
+         
+         social_media = online3,
+         
+         social_media_cat = factor(ifelse(online3 >= 5, "Social media use: high", "Social media use: low")),
+         
+         political_interest = q_pol_interest,
+         left_right = sl1_1, 
+         AfD_rating = pol3d7_1,
+         
+         AfD_rating_cat = factor(case_when(pol3d7_1 < 2 ~ "AfD rating: low",
+                                           pol3d7_1 > 6 ~ "AfD rating: high", 
+                                           pol3d7_1 >= 2 & pol3d7_1 <= 6 ~ "AfD rating: neutral",
+                                           TRUE ~ NA_character_), levels = c("AfD rating: low", 
+                                                                             "AfD rating: neutral", "AfD rating: high")),
+         
+         knowledge_efficacy = (vote4_1 + vote4_1 + vote4_1)/3,
+         att_regulate_imigration = issues1_1,
+         att_nato_important = issues1_2,
+         att_mitigate_climatec = issues1_3,
+         att_support_ukraine = issues1_4,
+         att_govh_covid_well = issues1_5,
+         att_satisf_democracy = issues1_6,
+         trust_politics = trust1_1,
+         trust_public_broadcast = trust1_2,
+         trust_private_media = trust1_3,
+         trust_social_media = trust1_4,
+         trust_science = trust1_5,
+         trust_people = trust1_6,
+         trust_blogs_YT = trust1_7,
+         
+         att_regulate_imigration_cat = factor(ifelse(issues1_1 > 3, "Regulate immigration: yes", "Regulate immigration: no")),
+        att_nato_important_cat = factor(ifelse(issues1_2 > 3, "NATO important: yes", "NATO important: no")),
+        att_mitigate_climatec_cat = factor(ifelse(issues1_3 > 3, "Mitigate climate change: yes", "Mitigate climate change: no")),
+        att_support_ukraine_cat = factor(ifelse(issues1_4 > 3, "Support Urkaine: yes", "Support Urkaine: no")),
+        att_govh_covid_well_cat = factor(ifelse(issues1_5 > 3, "Government Covid response: good", "Government Covid response: poor")),
+        att_satisf_democracy_cat = factor(ifelse(issues1_6 > 3, "Satisfaction w. democracy: high", "Satisfaction w. democracy: low")),
+        trust_politics_cat = factor(ifelse(trust1_1 > 3, "Trust in politics: high", "Trust in politics: low")),
+        trust_public_broadcast_cat = factor(ifelse(trust1_2 > 3, "Trust in public broadcasters: high", "Trust in public broadcasters: low")),
+        trust_private_media_cat = factor(ifelse(trust1_3 > 3, "Trust in private media: high", "Trust in private media: low")),
+        trust_social_media_cat = factor(ifelse(trust1_4 > 3, "Trust in social media: high", "Trust in social media: low")),
+        trust_science_cat = factor(ifelse(trust1_5 > 3, "Trust in science: high", "Trust in science: low")),
+        trust_people_cat = factor(ifelse(trust1_6 > 3, "Trust in people: high", "Trust in people: low")),
+        trust_blogs_YT_cat = factor(ifelse(trust1_7 > 3, "Trust in blogs / YouTube: high", "Trust in blogs / YouTube: low")),
+    
+         political_interest_cat = factor(ifelse(political_interest >= 4, "Political interest: high","Political interest: low")),
+         household_income_cat = factor(ifelse(household_income > 6, "Income: high", "Income: low")),
+
+         left_right_cat = factor(case_when(left_right < 4 ~ "Political orientation: left",
+                                   left_right > 3 & left_right < 9 ~ "Political orientation: center",
+                                   left_right > 8 ~ "Political orientation: right"), levels = c("Political orientation: left",
+                                                                                               "Political orientation: center",
+                                                                                               "Political orientation: right")),
+
+         age_cat = factor(case_when(age < 40 ~ "Age: <40",
+                                    age > 40 & age < 61 ~ "Age: 40-60",
+                                    age > 60 ~ "Age: >60"), levels = c("Age: <40","Age: 40-60","Age: >60")))
+
+
+
+
+
+# Scaling for predictive model according to Gelman (2008)
+gelman_scale <- function(x){
+  ( (x - mean(x, na.rm=T)) / (2*sd(x, na.rm=T)))
+}
+
+data_individuals_gscaled <- data_individuals%>%
+  select(prop_correct,age, gender, education, household_income, east_west,
+         urban, political_interest, left_right,
+         social_media, AfD_rating, att_regulate_imigration, att_nato_important,
+         att_mitigate_climatec, att_support_ukraine, att_govh_covid_well,
+         att_satisf_democracy, trust_politics, trust_public_broadcast,
+         trust_private_media, trust_social_media, trust_science,
+         trust_people, trust_blogs_YT)
+
+columns_to_scale <- c("prop_correct", "age",  
+                      "household_income", "urban",
+                      "political_interest", "left_right", "social_media", 
+                      "AfD_rating", "att_regulate_imigration", 
+                      "att_nato_important", "att_mitigate_climatec", 
+                      "att_support_ukraine", "att_govh_covid_well", 
+                      "att_satisf_democracy", "trust_politics", 
+                      "trust_public_broadcast", "trust_private_media", 
+                      "trust_social_media", "trust_science", 
+                      "trust_people", "trust_blogs_YT")
+
+data_individuals_gscaled[columns_to_scale] <- lapply(data_individuals_gscaled[columns_to_scale], 
+                                             gelman_scale)
+```
+
+#### Correct ratings over time
+
+```{r}
+data_plot <- data_discernment %>%
+  drop_na(phase) %>%  
+  group_by(phase, treatment) %>%
+  mutate(prop_correct = mean(correct_rating, na.rm = TRUE),
+         discernment_ability = source_trustworthiness/3*item_type, 
+         # divide by 3 because 4-point response scale has not been transformed in loaded dataset yet
+         mean_discernment_ability = mean(discernment_ability, na.rm = TRUE),
+         se_prop_correct = sd(correct_rating, na.rm = TRUE) / sqrt(n()), 
+         se_discernment = sd(discernment_ability, na.rm = TRUE) / sqrt(n()),
+            .groups = "drop") %>%
+  ungroup() %>% 
+  mutate(phase = factor(phase, levels = c("pre", "post", "follow-up")),
+         treatment = factor(treatment, 
+                            levels = c("lateral_reading", "online_search", "control"),
+                            labels = c("Lateral reading", "Online search", "Control")))
+
+combi_percs_time <- ggplot(data_plot, aes(x = treatment, y = prop_correct, fill = phase)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_errorbar(aes(ymin = prop_correct - se_prop_correct, ymax = prop_correct + se_prop_correct),
+                position = position_dodge(width = 0.7), width = 0.2) +
+  labs(x = "", y = "Proportion correct ratings", fill = "Time") +
+  theme_bw(base_size = 12) +
+  scale_fill_manual(values = c("darkgrey", "grey", "lightgrey")) +
+  coord_cartesian(ylim = c(0.5, NA))+
+  ggtitle("Correct ratings by treatment and time") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "top")
+
+combi_percs_time
+
+combi_discernment_time <- ggplot(data_plot, aes(x = treatment, y = mean_discernment_ability+0.5, fill = phase)) +
+  # shift values up by 0.5 to have 1 (not 0.5) be "perfect discernment" and 0 be "perfectly false" (instead of -0.5)
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_errorbar(aes(ymin = mean_discernment_ability+0.5 - se_discernment, ymax = mean_discernment_ability+0.5 + se_discernment),
+                position = position_dodge(width = 0.7), width = 0.2) +
+  labs(x = "", y = "Average discernment ability", fill = "Time") +
+  theme_bw(base_size = 12) +
+  coord_cartesian(ylim = c(0.5, NA))+
+  scale_fill_manual(values = c("darkgrey", "grey", "lightgrey")) +
+  ggtitle("Source trustworthiness discernment by treatment and time",
+          subtitle = "1 = perfect discernment, 0.5 = no discernment, 0 = consistent mislabeling") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "top")
+
+combi_discernment_time
+```
+
+
+```{r}
+# Bootstrapping means   
+rating_means_boot_ST_person <- data_individuals%>%
+  group_by(vote_choice2)%>%
+  do(data.frame(rbind(Hmisc::smean.cl.boot(.$prop_correct,conf.int=.95, B=1000))))%>%
+  na.omit()
+
+boot_results <- Hmisc::smean.cl.boot(data_individuals$prop_correct, conf.int = 0.95, B = 1000)
+
+rating_means_boot_ST_person_tot <- data.frame(Mean = boot_results[[1]],
+  Lower = boot_results[[2]],
+  Upper = boot_results[[3]])
+
+data_items <- data_discernment%>%
+  group_by(link_number)%>%
+  mutate(prop_detected = mean(correct_rating, na.rm = T))%>%
+  slice(1)%>%
+  mutate(item_type = ifelse(item_type == 1, "trustworthy", "untrustworthy"))
+
+data_items_fam <- data%>%
+  group_by(link_number)%>%
+  mutate(source_familiarity = ifelse(source_familiarity == 2, 0, source_familiarity),
+    prop_familiar = mean(source_familiarity, na.rm = T))%>%
+  slice(1)%>%
+  mutate(item_type = ifelse(item_type == 1, "trustworthy", "untrustworthy"))
+
+
+## Person Plots
+party_colors <- c("CDU" = "#151518", "SPD" = "#E3000F", "Die Grünen" = "#409A3C", 
+                  "FDP" = "#FFED00", "Die Linke" = "#BE3075", "BSW" = "#792351", 
+                  "AfD" = "#009ee0", "Other" = "grey")
+
+parties <- ggplot(data_individuals, aes(x = vote_choice2, color = vote_choice2)) +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = rating_means_boot_ST_person_tot$Lower, 
+                ymax = rating_means_boot_ST_person_tot$Upper), 
+            fill = "lightgrey", alpha = 0.1, linewidth = 0.01) +
+  geom_hline(yintercept = rating_means_boot_ST_person_tot$Mean, color = "black", linewidth = 0.5) +
+  geom_jitter(aes(y = prop_correct), position = position_jitter(width = 0.1, height = 0.1), alpha = 0.1, size = 1) + 
+  geom_flat_violin(aes(y = prop_correct, color = vote_choice2, fill = vote_choice2), 
+                   position = position_nudge(x = 0.2), alpha = 0.3, adjust = 1, trim = TRUE) + 
+  scale_color_manual(values = party_colors) +
+  scale_fill_manual(values = party_colors) +
+  labs(title = "Proportion of correct ratings by party preferences", 
+       subtitle = "Voting intention secondvote (seats) German federal election 2025",
+    x = "", y = "Proportion of correct ratings") +
+  theme_bw() +
+  guides(color = "none", fill = "none")+
+  scale_y_continuous(limits = c(0,1))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_point(data = rating_means_boot_ST_person, aes(y = Mean, fill = vote_choice2), size = 3, shape = 21, 
+             color = "black", stroke = 1) +
+  geom_errorbar(data = rating_means_boot_ST_person, aes(ymin = Lower, ymax = Upper), width = 0.1, color = "black")
+
+```
+
+#### Ratings by Party preference \| Pre-treatment ratings only
+
+```{r}
+# Bootstrapping means - pre-treatment
+rating_means_boot_ST_person_pre <- data_individuals_pre%>%
+  group_by(vote_choice2)%>%
+  do(data.frame(rbind(Hmisc::smean.cl.boot(.$prop_correct,conf.int=.95, B=1000))))%>%
+  na.omit()
+
+boot_results_pre <- Hmisc::smean.cl.boot(data_individuals_pre$prop_correct, conf.int = 0.95, B = 1000)
+
+rating_means_boot_ST_person_tot_pre <- data.frame(Mean = boot_results_pre[[1]],
+  Lower = boot_results_pre[[2]],
+  Upper = boot_results_pre[[3]])
+
+## Person Plots
+party_colors <- c("CDU" = "#151518", "SPD" = "#E3000F", "Die Grünen" = "#409A3C", 
+                  "FDP" = "#FFED00", "Die Linke" = "#BE3075", "BSW" = "#792351", 
+                  "AfD" = "#009ee0", "Other" = "grey")
+
+parties <- ggplot(data_individuals_pre, aes(x = vote_choice2, color = vote_choice2)) +
+  #geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = rating_means_boot_ST_person_tot_pre$Lower, 
+  #              ymax = rating_means_boot_ST_person_tot_pre$Upper), 
+  #          fill = "lightgrey", alpha = 0.1, linewidth = 0.01) +
+  geom_hline(yintercept = rating_means_boot_ST_person_tot_pre$Mean, color = "black", linewidth = 0.5, linetype = "dashed") +
+  geom_jitter(aes(y = prop_correct), position = position_jitter(width = 0.1, height = 0.1), alpha = 0.1, size = 1) + 
+  geom_flat_violin(aes(y = prop_correct, color = vote_choice2, fill = vote_choice2), 
+                   position = position_nudge(x = 0.2), alpha = 0.3, adjust = 1, trim = TRUE) + 
+  scale_color_manual(values = party_colors) +
+  scale_fill_manual(values = party_colors) +
+  labs(title = "Proportion of correct ratings by party preferences", 
+       subtitle = "Voting intention secondvote (seats) German federal election 2025",
+    x = "", y = "Proportion of correct ratings pre treatment") +
+  theme_bw() +
+  guides(color = "none", fill = "none")+
+  scale_y_continuous(limits = c(0,1))+
+  #theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_point(data = rating_means_boot_ST_person_pre, aes(y = Mean, fill = vote_choice2), size = 3, shape = 21, 
+             color = "black", stroke = 1) +
+  geom_errorbar(data = rating_means_boot_ST_person_pre, aes(ymin = Lower, ymax = Upper), width = 0.1, color = "black")
+
+parties
+```
+
+#### Pre-post version of Plot
+
+```{r}
+# Bootstrapping means - post treatment 
+rating_means_boot_ST_person_post <- data_individuals_post%>%
+  group_by(vote_choice2)%>%
+  do(data.frame(rbind(Hmisc::smean.cl.boot(.$prop_correct,conf.int=.95, B=1000))))%>%
+  na.omit()
+
+boot_results_post <- Hmisc::smean.cl.boot(data_individuals_post$prop_correct, conf.int = 0.95, B = 1000)
+
+rating_means_boot_ST_person_tot_post <- data.frame(Mean = boot_results_post[[1]],
+  Lower = boot_results_post[[2]],
+  Upper = boot_results_post[[3]])
+
+rating_means_boot_ST_person_pre$treatment_stage <- "Pre-treatment"
+rating_means_boot_ST_person_post$treatment_stage <- "Post-treatment"
+
+combined_data <- rbind(rating_means_boot_ST_person_pre, rating_means_boot_ST_person_post)
+
+parties_new <- ggplot(data_individuals, aes(x = vote_choice2, color = vote_choice2)) +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = rating_means_boot_ST_person_tot$Lower, 
+                ymax = rating_means_boot_ST_person_tot$Upper), 
+            fill = "lightgrey", alpha = 0.1, linewidth = 0.01) +
+  geom_hline(yintercept = rating_means_boot_ST_person_tot$Mean, color = "black", linewidth = 0.5) +
+  geom_jitter(aes(y = prop_correct), position = position_jitter(width = 0.1, height = 0.1), alpha = 0.1, size = 1) + 
+  geom_flat_violin(aes(y = prop_correct, color = vote_choice2, fill = vote_choice2), 
+                   position = position_nudge(x = 0.2), alpha = 0.3, adjust = 1, trim = TRUE) + 
+  scale_color_manual(values = party_colors) +
+  scale_fill_manual(values = party_colors) +
+  labs(title = "Proportion of correct ratings by party preferences", 
+       subtitle = "Voting intention secondvote (seats) German federal election 2025",
+    x = "", y = "Proportion of correct ratings") +
+  theme_bw() +
+  guides(color = "none", fill = "none")+
+  scale_y_continuous(limits = c(0,1))+
+  #theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_errorbar(data = combined_data,
+    aes(ymin = Lower, ymax = Upper),
+    width = 0, color = "black") +
+  geom_point(data = combined_data,
+    aes(y = Mean, fill = vote_choice2, shape = treatment_stage),
+    size = 2, color = "black", stroke = 1) +
+  scale_shape_manual(values = c("Pre-treatment" = 21, "Post-treatment" = 24),
+    name = "") +
+  guides(shape = guide_legend(override.aes = list(size = 2)))+
+  theme(legend.position = c(0.5, 0.2),  
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(fill = "transparent"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+  
+parties_new
+```
+
+#### Predictors of Discernment
+
+```{r}
+demographic_vars <- c("age", "gender", "education", "household_income", "east_west",
+                      "urban", "political_interest", "left_right",
+                      "social_media", "AfD_rating", "att_regulate_imigration", "att_nato_important", 
+                      "att_mitigate_climatec", "att_support_ukraine", "att_govh_covid_well", 
+                      "att_satisf_democracy", "trust_politics", "trust_public_broadcast", 
+                      "trust_private_media", "trust_social_media", "trust_science", 
+                      "trust_people", "trust_blogs_YT") 
+
+# Initialize a list to store results
+results <- list()
+
+# Loop through each demographic variable and fit lm_robust model
+for (var in demographic_vars) {
+  model <- lm_robust(as.formula(paste("prop_correct ~", var)), data = data_individuals_gscaled)
+  summary <- tidy(model) %>% filter(str_detect(term, var))
+  summary$predictor <- var
+  results[[var]] <- summary
+}
+
+# Combine results into a single dataframe
+results_df <- bind_rows(results)
+
+results_df <- results_df %>%
+  mutate(pretty_predictor = case_when(
+    predictor == "age" ~ "Age",
+    predictor == "gender" ~ "Gender (Male)",
+    predictor == "education" ~ "Education",
+    predictor == "household_income" ~ "Household Income",
+    predictor == "east_west" ~ "East Germany (vs. West)",
+    predictor == "urban" ~ "Urban",
+    predictor == "political_interest" ~ "Political Interest",
+    predictor == "left_right" ~ "Left/Right (Right)",
+    predictor == "social_media" ~ "Social Media Time",
+    predictor == "AfD_rating" ~ "AfD Rating",
+    predictor == "att_regulate_imigration" ~ "Regulate Immigration",
+    predictor == "att_nato_important" ~ "NATO Importance",
+    predictor == "att_mitigate_climatec" ~ "Mitigate Climate Change",
+    predictor == "att_support_ukraine" ~ "Support Ukraine",
+    predictor == "att_govh_covid_well" ~ "Government good COVID Response",
+    predictor == "att_satisf_democracy" ~ "Satisfaction with Democracy",
+    predictor == "trust_politics" ~ "Trust in Politics",
+    predictor == "trust_public_broadcast" ~ "Trust in Public Broadcasting",
+    predictor == "trust_private_media" ~ "Trust in Private Media",
+    predictor == "trust_social_media" ~ "Trust in Social Media",
+    predictor == "trust_science" ~ "Trust in Science",
+    predictor == "trust_people" ~ "Trust in People",
+    predictor == "trust_blogs_YT" ~ "Trust in Blogs/YouTube",
+    TRUE ~ predictor 
+  ))
+
+
+results_df_arranged <- results_df%>%
+  mutate(pretty_predictor = factor(pretty_predictor,
+                                   levels = rev(c(
+                                     "Age", "Gender (Male)", "Education", "Household Income", 
+                                     "East Germany (vs. West)", "Urban", "Social Media Time",
+                                     "Political Interest", "Left/Right (Right)", 
+                                     "AfD Rating", "Satisfaction with Democracy",
+                                     "Regulate Immigration", "NATO Importance", 
+                                     "Mitigate Climate Change", "Support Ukraine", 
+                                     "Government good COVID Response", 
+                                      "Trust in Politics", 
+                                     "Trust in Public Broadcasting", "Trust in Private Media", 
+                                     "Trust in Social Media", "Trust in Science", "Trust in People", 
+                                     "Trust in Blogs/YouTube"
+                                   ))))
+
+
+# Plot coefficients with error bars
+predictors <- ggplot(results_df_arranged, aes(x = estimate, y = pretty_predictor)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = c(7.5, 12.5, 16.5), linetype = "solid", color = "grey50") +
+  labs(title = "Predicting the Proportion of Correct Ratings",
+       x = "",
+       y = "") +
+  theme_minimal()
+predictors
+
+```
+
+#### Marginal Means
+
+```{r}
+predictors <- list("age_cat", "gender", "education_cat", "household_income_cat", "east_west",
+                      "urban_cat", "political_interest_cat","vote_choice1", "left_right_cat", 
+                       "AfD_rating_cat", "att_regulate_imigration_cat", "att_nato_important_cat", 
+                      "att_mitigate_climatec_cat", "att_support_ukraine_cat", "att_govh_covid_well_cat", 
+                      "att_satisf_democracy_cat", "trust_politics_cat", "trust_public_broadcast_cat", 
+                      "trust_private_media_cat", "trust_social_media_cat", "trust_science_cat", 
+                      "trust_people_cat", "trust_blogs_YT_cat","social_media_cat")
+
+models_individuals <- list(
+  lm_robust(prop_correct ~ age_cat, data = data_individuals),
+  lm_robust(prop_correct ~ gender, data = data_individuals),
+  lm_robust(prop_correct ~ education_cat, data = data_individuals),
+  lm_robust(prop_correct ~ household_income_cat, data = data_individuals),
+  lm_robust(prop_correct ~ east_west, data = data_individuals),
+  lm_robust(prop_correct ~ urban_cat, data = data_individuals),
+  lm_robust(prop_correct ~ political_interest_cat, data = data_individuals),
+  lm_robust(prop_correct ~ vote_choice1, data = data_individuals),
+  lm_robust(prop_correct ~ left_right_cat, data = data_individuals),
+  lm_robust(prop_correct ~ AfD_rating_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_regulate_imigration_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_nato_important_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_mitigate_climatec_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_support_ukraine_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_govh_covid_well_cat, data = data_individuals),
+  lm_robust(prop_correct ~ att_satisf_democracy_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_politics_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_public_broadcast_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_private_media_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_social_media_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_science_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_people_cat, data = data_individuals),
+  lm_robust(prop_correct ~ trust_blogs_YT_cat, data = data_individuals),
+  lm_robust(prop_correct ~ social_media_cat, data = data_individuals)
+
+)
+
+model_frames_mm <- lapply(seq_along(models_individuals), function(i) {
+
+  mod_pred_means_df <- avg_predictions(
+    models_individuals[[i]], 
+    by = predictors[[i]],
+    type = "response"
+  )
+
+  data.frame(
+    Predicted = mod_pred_means_df$estimate,
+    SE = mod_pred_means_df$std.error,
+    Predictor = predictors[[i]],
+    Term = mod_pred_means_df[[predictors[[i]]]],
+    stringsAsFactors = FALSE
+  )
+})
+
+df_predicted <- dplyr::bind_rows(model_frames_mm)
+
+interval <- -qnorm((1 - 0.90) / 2)
+
+mean_prop <- mean(data_individuals$prop_correct, na.rm = TRUE)
+
+df_predicted$Term <- factor(df_predicted$Term, levels = rev(unique(df_predicted$Term)))
+
+vline_positions <- c(2.5,4.5,6.5,8.5,10.5,12.5,14.5,16.5,18.5,20.5,22.5,24.5,26.5,28.5,
+                     31.5,34.5,42.5,44.5,47.5,49.5,51.5,54.5,56.5)
+
+predicted_plot <- ggplot(df_predicted, aes(x = Term, y = Predicted, color = Predicted)) +
+  geom_hline(yintercept = mean_prop, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = vline_positions, linetype = "solid", color = "grey") +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = Predicted - SE * interval, ymax = Predicted + SE * interval),
+                width = 0, position = position_dodge(width = 0.5)) +
+  theme_bw(base_size = 12) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "Marginal means", title = "Predicted proportion of correct ratings") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  scale_color_gradient2(midpoint = mean_prop,
+                        low = "#d7263d",  
+                        mid = "grey",    
+                        high = "#1b998b")+
+  guides(color = "none")
+
+predicted_plot
+
+
+```
+
+#### Marginal Means \| Pre-treatment only
+
+```{r}
+predictors <- list("age_cat", "gender", "education_cat", "household_income_cat", "east_west",
+                      "urban_cat", "political_interest_cat","vote_choice1", "left_right_cat", 
+                       "AfD_rating_cat", "att_regulate_imigration_cat", "att_nato_important_cat", 
+                      "att_mitigate_climatec_cat", "att_support_ukraine_cat", "att_govh_covid_well_cat", 
+                      "att_satisf_democracy_cat", "trust_politics_cat", "trust_public_broadcast_cat", 
+                      "trust_private_media_cat", "trust_social_media_cat", "trust_science_cat", 
+                      "trust_people_cat", "trust_blogs_YT_cat","social_media_cat")
+
+models_individuals <- list(
+  lm_robust(prop_correct ~ age_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ gender, data = data_individuals_pre),
+  lm_robust(prop_correct ~ education_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ household_income_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ east_west, data = data_individuals_pre),
+  lm_robust(prop_correct ~ urban_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ political_interest_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ vote_choice1, data = data_individuals_pre),
+  lm_robust(prop_correct ~ left_right_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ AfD_rating_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_regulate_imigration_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_nato_important_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_mitigate_climatec_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_support_ukraine_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_govh_covid_well_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ att_satisf_democracy_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_politics_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_public_broadcast_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_private_media_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_social_media_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_science_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_people_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ trust_blogs_YT_cat, data = data_individuals_pre),
+  lm_robust(prop_correct ~ social_media_cat, data = data_individuals_pre)
+
+)
+
+model_frames_mm <- lapply(seq_along(models_individuals), function(i) {
+
+  mod_pred_means_df <- avg_predictions(
+    models_individuals[[i]], 
+    by = predictors[[i]],
+    type = "response"
+  )
+
+  data.frame(
+    Predicted = mod_pred_means_df$estimate,
+    SE = mod_pred_means_df$std.error,
+    Predictor = predictors[[i]],
+    Term = mod_pred_means_df[[predictors[[i]]]],
+    stringsAsFactors = FALSE
+  )
+})
+
+df_predicted <- dplyr::bind_rows(model_frames_mm)
+
+interval <- -qnorm((1 - 0.84) / 2)
+
+mean_prop <- mean(data_individuals_pre$prop_correct, na.rm = TRUE)
+
+df_predicted$Term <- factor(df_predicted$Term, levels = rev(unique(df_predicted$Term)))
+
+vline_positions <- c(2.5,4.5,6.5,8.5,10.5,12.5,14.5,16.5,18.5,20.5,22.5,24.5,26.5,28.5,
+                     31.5,34.5,42.5,44.5,47.5,49.5,51.5,54.5,56.5)
+
+predicted_plot <- ggplot(df_predicted, aes(x = Term, y = Predicted, color = Predicted)) +
+  geom_hline(yintercept = mean_prop, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = vline_positions, linetype = "solid", color = "grey") +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = Predicted - SE * interval, ymax = Predicted + SE * interval),
+                width = 0, position = position_dodge(width = 0.5)) +
+  theme_bw(base_size = 12) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "Marginal means pre treatment ", title = "Predicted proportion of correct ratings") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  scale_color_gradient2(midpoint = mean_prop,
+                        low = "#d7263d",  
+                        mid = "grey",    
+                        high = "#1b998b")+
+  guides(color = "none")
+
+predicted_plot
+
+
+
+```
+
+#### Item Plots
+
+```{r}
+
+link_topics <- c("climate", "climate", "conspiracy", "conspiracy", "covid", 
+                   "covid", "election", "election", "migration", "migration", 
+                   "Ukraine", "Ukraine")
+
+data_items$link_topics <- link_topics
+data_items_fam$link_topics <- link_topics
+
+# Item difficulty (proportion of correct responses)
+item_diff <- ggplot(data_items) +
+  geom_col(aes(x = factor(link_number), y = prop_detected, fill = factor(item_type))) +
+  geom_text(aes(x = factor(link_number), y = prop_detected / 2, label = link_topics), 
+            angle = 90, vjust = 0.5, hjust = 0.5, color = "white", size = 4) +
+  scale_fill_manual(values = c("trustworthy" = "#1b998b", "untrustworthy" = "#d7263d")) +
+  labs(x = "Item Number", y = "Prop. correct ratings", fill = "Item Type") +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme_bw(base_size = 12)+
+  ggtitle("Website Difficulty")+
+  guides(fill = "none")+
+  facet_wrap(~ item_type, scales = "free_x")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+item_diff
+
+# Item familiarity (proportion of "familiar" responses)
+item_fam <- ggplot(data_items_fam) +
+  geom_col(aes(x = factor(link_number), y = prop_familiar, fill = factor(item_type))) +
+  geom_text(aes(x = factor(link_number), y = 0.2, label = link_topics), 
+            angle = 90, hjust = 0.3, color = "black", size = 4) +
+  scale_fill_manual(values = c("trustworthy" = "#1b998b", "untrustworthy" = "#d7263d")) +
+  labs(x = "Item Number", y = "Website familiar", fill = "Item Type") +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme_bw(base_size = 12)+
+  ggtitle("Website Familiarity")+
+  guides(fill = "none")+
+  facet_wrap(~ item_type, scales = "free_x")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+item_fam
+
+
+
+```

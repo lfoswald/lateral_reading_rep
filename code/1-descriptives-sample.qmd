@@ -1,0 +1,613 @@
+---
+title: "Sample Descriptives"
+subtitle: "Open code and supplementary material to: Lateral Reading Germany"
+format:
+  html:
+    code-fold: true
+editor: visual
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+library(gridExtra)
+library(boot)
+library(tidyr)
+library(knitr)
+library(gtsummary)
+library(rstatix)
+
+data <- read_delim("../data/exp_data.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+data[data == 997] <- NA 
+
+sample <- data %>%
+  group_by(ID) %>% slice(1) %>% ungroup() %>%
+  mutate(Age = age,
+    Gender = factor(Geschlecht, levels = 1:2, labels = c("Male","Female")),
+    Education = factor(Schulabschluss,
+                       levels = 1:5,
+                       labels = c("Still in school",
+                                  "Haupt-/Volksschule",
+                                  "Realschule or equivalent",
+                                  "Abitur/Fachhochschulreife",
+                                  "No degree")),
+    Bundesland = factor(Bundesland,
+                        levels = 1:17,
+                        labels = c(
+                          "Schleswig-Holstein","Hamburg","Niedersachsen","Bremen",
+                          "Nordrhein-Westfalen","Hessen","Rheinland-Pfalz",
+                          "Baden-Württemberg","Bayern","Saarland","Berlin",
+                          "Brandenburg","Mecklenburg-Vorpommern","Sachsen",
+                          "Sachsen-Anhalt","Thüringen","nicht in Deutschland")),
+    FirstVote = factor(vote2_1,
+                       levels = 1:9,
+                       labels = c("CDU","SPD","Die Grünen","FDP",
+                                  "Die Linke","BSW","AfD","Andere","Weiß nicht")))
+
+demo_table <- sample %>%
+  select(Age, Gender, Education, Bundesland, FirstVote) %>%
+  tbl_summary(
+    statistic = list(
+      Age ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"),
+    label = list(Age ~ "Age (years)",
+      Gender ~ "Gender",
+      Education ~ "Education",
+      Bundesland ~ "State (Bundesland)",
+      FirstVote ~ "Party Preference (First Vote)"),
+    missing = "no") %>%
+  modify_header(label ~ "**Variable**",
+                stat_0 ~ "**Sample**")
+
+# manually entered benchmark values
+demo_with_cat_bench <- demo_table %>%
+  modify_table_body(
+    ~ .x %>%
+      mutate(
+        Benchmark = case_when(
+          # Gender
+          row_type == "level" & var_label == "Gender" & label == "Male"   ~ "",
+          row_type == "level" & var_label == "Gender" & label == "Female" ~ "",
+          # Education
+          row_type == "level" & var_label == "Education" & label == "Still in school"             ~ "",
+          row_type == "level" & var_label == "Education" & label == "Haupt-/Volksschule"          ~ "",
+          row_type == "level" & var_label == "Education" & label == "Realschule or equivalent"    ~ "",
+          row_type == "level" & var_label == "Education" & label == "Abitur/Fachhochschulreife"   ~ "",
+          row_type == "level" & var_label == "Education" & label == "No degree"                   ~ "",
+          # State (Bundesland)
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Schleswig-Holstein" ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Hamburg"            ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Niedersachsen"      ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Bremen"             ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Nordrhein-Westfalen"~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Hessen"             ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Rheinland-Pfalz"    ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Baden-Württemberg"  ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Bayern"             ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Saarland"           ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Berlin"             ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Brandenburg"        ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Mecklenburg-Vorpommern" ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Sachsen"            ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Sachsen-Anhalt"     ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "Thüringen"          ~ "",
+          row_type == "level" & var_label == "State (Bundesland)" & label == "nicht in Deutschland" ~ "",
+          # Age
+          row_type == "label" & var_label == "Age (years)" ~ "",
+          # Party Preferences (First Vote)
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "CDU"         ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "SPD"         ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "Die Grünen"  ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "FDP"         ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "AfD"         ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "Die Linke"   ~ "",
+          row_type == "level" & var_label == "Party Preference (First Vote)" & label == "Other"       ~ "",
+          TRUE ~ NA_character_
+        )
+      )
+  ) %>%
+  modify_header(Benchmark ~ "**Benchmark**") %>%
+  modify_footnote(
+    Benchmark ~ "Benchmarks from Destatis Mikrozensus 2023"
+  )
+
+
+demo_with_cat_bench %>% as_gt()
+```
+
+```{r}
+# Sample details
+table(sample$sample_type) # 1 = nat rep, 2 = pulse
+table(sample$condition) 
+table(sample$videoq) # watched video? 1 = yes, 2 = no
+table(sample$onlineq) # read instructions? 1 = yes, 2 = no
+
+# Attrition rates
+attrition_table <- table(sample$condition, is.na(sample$starttime_w2))
+prop.table(attrition_table, margin = 1)
+as.data.frame(pairwise_prop_test(attrition_table))
+
+# Gender 
+table(sample$Geschlecht)
+
+# Age 
+ageplot <- ggplot(sample)+
+  geom_histogram(aes(age), fill = "grey")+
+  theme_bw()+ 
+  ylab("")+
+  xlab(paste0("Age in years (M = ",round(mean(sample$age),2),", SD = ",round(sd(sample$age),2),")"))+
+  annotate(geom="text", x=20, y=200,hjust = 0, label= paste("Male: ",table(sample$Geschlecht)[1]))+
+  annotate(geom="text", x=20, y=180,hjust = 0, label= paste("Female: ",table(sample$Geschlecht)[2]))+
+  annotate(geom="text", x=20, y=160,hjust = 0, label= paste("N: ", nrow(sample)),fontface =2)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+# Education - fix
+educplot <- sample%>%
+  filter(Schulabschluss < 10)%>%
+  ggplot()+
+  geom_bar(aes(Schulabschluss), fill = "grey")+
+  coord_flip()+
+  ylab("")+
+  xlab("Level of formal education")+
+  theme_bw()+
+  annotate(geom="text", x = 1, y = 0, hjust = 0,  label = "Still in school")+
+  annotate(geom="text", x = 2, y = 0, hjust = 0, label = "Haupt- oder Volksschulabschluss")+
+  annotate(geom="text", x = 3, y = 0, hjust = 0, label = "Realschul- oder gleichwertiger Abschluss")+
+  annotate(geom="text", x = 4, y = 0, hjust = 0, label = "Abitur, Fachhochschulreife")+
+  annotate(geom="text", x = 5, y = 0, hjust = 0, label = "No degree")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+demo <- grid.arrange(ageplot, educplot, nrow = 1,
+                     top = "Age and education across study sample")
+
+```
+
+```{r}
+# Bundesland
+table(sample$Bundesland)
+
+# Umfeld (1 = städtisch, 2 = vorstädtisch, 3 = ländlich)
+table(sample$Umfeld)
+
+# migration 
+table(sample$migration)
+
+# online activity
+a <- ggplot(sample)+
+  geom_bar(aes(online1), fill = "grey")+
+  theme_bw()+
+  coord_flip()+
+  ylab("")+
+  xlab("")+
+  labs(title = "Time online | Desktop")+
+  annotate(geom="text", x = 1, y = 0, hjust = 0, label = "Never")+
+  annotate(geom="text", x = 2, y = 0, hjust = 0, label = "Up to one hour per week")+
+  annotate(geom="text", x = 3, y = 0, hjust = 0, label = "Up to one hour per day")+
+  annotate(geom="text", x = 4, y = 0, hjust = 0, label = "Multiple hours per day")+
+  annotate(geom="text", x = 5, y = 0, hjust = 0, label = "Almost the entire day")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+b <- ggplot(sample)+
+  geom_bar(aes(online2), fill = "grey")+
+  theme_bw()+
+  coord_flip()+
+  ylab("")+
+  xlab("")+
+  labs(title = "Time online | Mobile")+
+  annotate(geom="text", x = 1, y = 0, hjust = 0, label = "Never")+
+  annotate(geom="text", x = 2, y = 0, hjust = 0, label = "Up to one hour per week")+
+  annotate(geom="text", x = 3, y = 0, hjust = 0, label = "Up to one hour per day")+
+  annotate(geom="text", x = 4, y = 0, hjust = 0, label = "Multiple hours per day")+
+  annotate(geom="text", x = 5, y = 0, hjust = 0, label = "Almost the entire day")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+
+c <- ggplot(sample)+
+  geom_bar(aes(online3), fill = "grey")+
+  theme_bw()+
+  coord_flip()+
+  xlab("")+
+  labs(title = "Social media use")+
+  annotate(geom="text", x = 1, y = 0, hjust = 0, label = "Never")+
+  annotate(geom="text", x = 2, y = 0, hjust = 0, label = "Once per week or less")+
+  annotate(geom="text", x = 3, y = 0, hjust = 0, label = "A couple of times per week")+
+  annotate(geom="text", x = 4, y = 0, hjust = 0, label = "About once per day")+
+  annotate(geom="text", x = 5, y = 0, hjust = 0, label = "Multiple times per day")+
+  annotate(geom="text", x = 6, y = 0, hjust = 0, label = "Almost constantly")+
+  ylab("")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+```
+
+```{r}
+#### Political Variables ####
+
+int <- ggplot(sample, aes(pol1))+
+  geom_bar(fill = "grey")+
+  ggtitle("Political Interest")+
+  xlab("")+
+  ylab("")+
+  theme_bw(base_size = 13)+
+  xlim(rev(c("Not interested", "Sighly interested","Moderately interested", "Very interested")))+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+int
+
+pol <- ggplot(sample)+
+  geom_bar(aes(x = sl1_1, fill = after_stat(x)))+
+  theme_bw(base_size = 13)+
+  scale_fill_gradient2(low='#6699ff', mid='lightgrey', high='#bc3455', midpoint=6)+
+  ggtitle("Political Orientation | left-right")+
+  xlab("")+
+  ylab("")+
+  theme(legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  xlim("far left", "","", "", "", "", "", "",
+      "", "", "far right")
+
+
+pol
+```
+
+```{r}
+#### Party ratings ####
+
+# Ratings
+long_parties <- sample %>%
+  pivot_longer(cols = starts_with("pol3d"), 
+               names_to = "Variable", 
+               values_to = "Rating") %>%
+  filter(!is.na(Rating)) 
+
+long_parties <- long_parties %>%
+  mutate(Party = case_when(
+    Variable == "pol3d1_1" ~ "CDU",
+    Variable == "pol3d2_1" ~ "SPD",
+    Variable == "pol3d3_1" ~ "Die Grünen",
+    Variable == "pol3d4_1" ~ "FDP",
+    Variable == "pol3d5_1" ~ "Die Linke",
+    Variable == "pol3d6_1" ~ "BSW",
+    Variable == "pol3d7_1" ~ "AfD")) %>%
+  filter(!is.na(Party))
+
+long_parties$Party <- factor(long_parties$Party, levels = c("CDU", "SPD", "Die Grünen", "FDP", "Die Linke", "BSW", "AfD"))
+
+party_colors <- c("CDU" = "#151518", "SPD" = "#E3000F", 
+                  "Die Grünen" = "#409A3C", "FDP" = "#FFED00", 
+                  "Die Linke" = "#BE3075", "BSW" = "#792351", 
+                  "AfD" = "#00A2DE")
+
+rating <- ggplot(long_parties, aes(x = Party, y = Rating, color = Party)) +
+  geom_jitter(alpha = 0.1) +
+  geom_violin() +
+  scale_color_manual(values = party_colors) +  
+  labs(title = "Raw Ratings of Political Parties", subtitle = "\"Was halten Sie ganz allgemein von den einzelnen politischen Parteien?\"",
+       x = "", y = "Scale: 0 (gar nichts) - 10 (sehr viel)") +
+  theme_bw(base_size = 12) +
+  guides(color = "none")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+rating
+
+# Firstvote
+sample <- sample %>%
+  mutate(vote_choice1 = factor(vote2_1, levels = 1:9, 
+                              labels = c("CDU", "SPD", "Die Grünen", 
+                                         "FDP", "Die Linke", "BSW", "AfD", 
+                                         "Andere", "Weiß nicht")),
+         vote_choice2 = factor(vote2_2, levels = 1:9, 
+                               labels = c("CDU", "SPD", "Die Grünen", 
+                                          "FDP", "Die Linke", "BSW", "AfD", 
+                                          "Andere", "Weiß nicht")))
+
+vote_counts1 <- sample %>% count(vote_choice1)
+vote_counts2 <- sample %>% count(vote_choice2)
+
+party_colors <- c("CDU" = "#151518", "SPD" = "#E3000F", "Die Grünen" = "#409A3C", "FDP" = "#FFED00", 
+                  "Die Linke" = "#BE3075", "BSW" = "#792351", "AfD" = "#00A2DE", 
+                  "Andere" = "grey", "Weiß nicht" = "darkgrey")
+
+# Plot the data
+vote1 <- ggplot(vote_counts1, aes(x = vote_choice1, y = n, fill = vote_choice1)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = party_colors) +  # Set custom colors
+  labs(
+    title = "Frist Vote Bundestagswahl 2025",
+    subtitle = "\"Wenn am kommenden Sonntag Bundestagswahl ẅaere, was würden Sie\n auf ihrem Wahlzettel ankreuzen? \"",
+    x = "",
+    y = "Number of People"
+  ) +
+  theme_bw(base_size = 12) +
+  guides(fill = "none")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+vote1
+
+vote2 <- ggplot(vote_counts2, aes(x = vote_choice2, y = n, fill = vote_choice2)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = party_colors) +  # Set custom colors
+  labs(
+    title = "Second Vote Bundestagswahl 2025",
+    subtitle = "\"Wenn am kommenden Sonntag Bundestagswahl ẅaere, was würden Sie\n auf ihrem Wahlzettel ankreuzen? \"",
+    x = "",
+    y = "Number of People"
+  ) +
+  theme_bw(base_size = 12) +
+  guides(fill = "none")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+vote2
+```
+
+```{r}
+## issue knowledge 
+
+knowledge <- sample %>% 
+  select(issues2_1:issues2_6)%>%
+  rename(`Climate change` = issues2_1,
+         `Migration` = issues2_2,
+         `War in Ukraine` = issues2_3,
+         `Intern. organizations` = issues2_4,
+         `Democrat. elections` = issues2_5,
+         `Covid-19` = issues2_6)%>%
+  pivot_longer(
+    cols = 1:6,
+    names_to = "Variable",
+    values_to = "Knowledge") %>% 
+  count(Variable, Knowledge) %>% 
+  ggplot(aes(y = n, x = Knowledge)) +
+  facet_wrap(. ~ Variable) +
+  geom_col(fill = "black")+
+  ylab("")+
+  xlab("1: Nothing, 2: A little, 3: Something, 4: A lot, 5: Very much")+
+  ggtitle("Issue Knowledge")+
+  theme_bw(base_size = 12)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+knowledge
+
+## issue attitudes 
+
+attitudes <- sample %>% 
+  dplyr::select(issues1_1:issues1_6)%>%
+  rename(`Regulate migration` = issues1_1,
+         `NATO is important` = issues1_2,
+         `Mitigate climate change` = issues1_3,
+         `Support Ukraine` = issues1_4,
+         `Gov. handled Covid well` = issues1_5,
+         `Satisf. with Democracy` = issues1_6,
+         )%>%
+  pivot_longer(
+    cols = 1:6,
+    names_to = "Variable",
+    values_to = "Attitude"
+  ) %>% 
+  count(Variable, Attitude) %>% 
+  ggplot(aes(y = n, x = Attitude)) +
+  facet_wrap(. ~ Variable) +
+  geom_col(fill = "black")+
+  ylab("")+
+  xlab("1: Strongly disagree - 5: Strongly agree")+
+  ggtitle("Issue Attitudes")+
+  theme_bw(base_size = 12)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+attitudes
+
+
+#### Trust #### 
+
+trust1 <- sample %>% 
+  dplyr::select(trust1_1:trust1_7)%>%
+  rename(`Politics` = trust1_1,
+         `Public broadcasting (z.B. ARD, ZDF)` = trust1_2,
+         `Private media (z.B. RTL, BILD)` = trust1_3,
+         `Social media (z.B. Instagram, TikTok)` = trust1_4,
+         `Science` = trust1_5,
+         `People generally` = trust1_6,
+         `Online blogs and YouTube channels` = trust1_7)%>%
+  pivot_longer(
+    cols = 1:7,
+    names_to = "Variable",
+    values_to = "Agreement"
+  ) %>% 
+  count(Variable, Agreement) %>% 
+  ggplot(aes(y = n, x = Agreement)) +
+  facet_wrap(. ~ Variable) +
+  geom_col(fill = "black")+
+  ylab("")+
+  xlab("1: Not at all, 2: A little, 3: Some, 4: Quite a bit, 5: Very much")+
+  ggtitle("Trust | Pre Evaluation, wave 1")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+trust1
+
+trust2 <- sample %>% 
+  dplyr::select(trustpost1_1:trustpost1_7)%>%
+  rename(`Politics` = trustpost1_1,
+         `Public broadcasting (z.B. ARD, ZDF)` = trustpost1_2,
+         `Private media (z.B. RTL, BILD)` = trustpost1_3,
+         `Social media (z.B. Instagram, TikTok)` = trustpost1_4,
+         `Science` = trustpost1_5,
+         `People generally` = trustpost1_6,
+         `Online blogs and YouTube channels` = trustpost1_7)%>%
+  pivot_longer(
+    cols = 1:7,
+    names_to = "Variable",
+    values_to = "Agreement"
+  ) %>% 
+  count(Variable, Agreement) %>% 
+  ggplot(aes(y = n, x = Agreement)) +
+  facet_wrap(. ~ Variable) +
+  geom_col(fill = "black")+
+  ylab("")+
+  xlab("1: Not at all, 2: A little, 3: Some, 4: Quite a bit, 5: Very much")+
+  ggtitle("Trust | Post Evaluation, wave 1")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+trust2
+
+```
+
+```{r}
+# Trust change pre-post evaluation in W1
+sample <- sample %>%
+  mutate(change_politics = trustpost1_1 - trust1_1,
+    change_public_broadcasting = trustpost1_2 - trust1_2,
+    change_private_media = trustpost1_3 - trust1_3,
+    change_social_media = trustpost1_4 - trust1_4,
+    change_science = trustpost1_5 - trust1_5,
+    change_people_generally = trustpost1_6 - trust1_6,
+    change_online_blogs_youtube = trustpost1_7 - trust1_7)
+
+change_data <- sample %>%
+  select(starts_with("change_")) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Change")%>%
+  group_by(Variable) %>%
+  summarize(
+    Average_Change = mean(Change, na.rm = TRUE),
+    SE_Change = sd(Change, na.rm = TRUE) / sqrt(n()),  # Standard Error
+    CI_Lower = Average_Change - 1.96 * (sd(Change, na.rm = TRUE) / sqrt(n())),  # Lower CI
+    CI_Upper = Average_Change + 1.96 * (sd(Change, na.rm = TRUE) / sqrt(n()))   # Upper CI
+  ) %>%
+  mutate(Variable = recode(Variable,
+    "change_politics" = "Politics",
+    "change_public_broadcasting" = "Public broadcasting \n (z.B. ARD, ZDF)",
+    "change_private_media" = "Private media \n (z.B. RTL, BILD)",
+    "change_social_media" = "Social media \n (z.B. Instagram, TikTok)",
+    "change_science" = "Science",
+    "change_people_generally" = "People generally",
+    "change_online_blogs_youtube" = "Online blogs and \n YouTube channels"))
+
+average_change_plot <- ggplot(change_data, aes(x = Variable, y = Average_Change, fill = Variable)) +
+  geom_bar(stat = "identity", fill = "darkgrey") +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.1, color = "black") +  # Add error bars
+  labs(
+    title = "Average Change in Trust Ratings",
+    subtitle = "Difference before and after website rating in wave 1",
+    x = "", y = "Average Change in Trust (Scale: 1-5)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+average_change_plot
+
+######## split by treatment ####
+change_data <- sample %>%
+  pivot_longer(
+    cols = starts_with("change_"),
+    names_to = "Variable",
+    values_to = "Change"
+  ) %>%
+  group_by(treatment, Variable) %>%
+  summarize(
+    Average_Change = mean(Change, na.rm = TRUE),
+    SE_Change = sd(Change, na.rm = TRUE) / sqrt(n()),
+    CI_Lower = Average_Change - 1.96 * SE_Change,
+    CI_Upper = Average_Change + 1.96 * SE_Change,
+    .groups = "drop"
+  ) %>%
+  mutate(Variable = recode(Variable,
+                           "change_politics" = "Politics",
+                           "change_public_broadcasting" = "Public broadcasting \n (z.B. ARD, ZDF)",
+                           "change_private_media" = "Private media \n (z.B. RTL, BILD)",
+                           "change_social_media" = "Social media \n (z.B. Instagram, TikTok)",
+                           "change_science" = "Science",
+                           "change_people_generally" = "People generally",
+                           "change_online_blogs_youtube" = "Online blogs and \n YouTube channels"),
+         treatment = recode(treatment,
+                            "control" = "Control",
+                            "lateral_reading" = "Lateral Reading",
+                            "online_search" = "Online Search"))
+
+# Create a grouped bar plot by treatment
+average_change_plot <- ggplot(change_data, aes(x = Variable, y = Average_Change, fill = treatment)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                width = 0.1,
+                position = position_dodge(width = 0.9)) +
+  labs(
+    title = "Average Change in Trust Ratings by Treatment",
+    subtitle = "Difference before and after website rating in wave 1",
+    x = "",
+    y = "Average Change in Trust (Scale: 1-5)",
+    fill = "Treatment"
+  ) +
+  theme_minimal(base_size = 12) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")+
+  scale_fill_manual(values = c("#a9a9a9","#545454","#2a2a2a"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+average_change_plot
+
+```
+
+#### Self-reported strategies
+
+```{r}
+strategy_data <- sample %>% 
+  dplyr::select(selfreported_m_1_w2:selfreported_m_7_w2, treatment) %>%
+  rename(`Lateral reading` = selfreported_m_1_w2,
+         `Online search` = selfreported_m_2_w2,
+         `View Impressum` = selfreported_m_3_w2,
+         `Read critically` = selfreported_m_4_w2,
+         `Inspect elements` = selfreported_m_5_w2,
+         `Trust intuition` = selfreported_m_6_w2,
+         `Other` = selfreported_m_7_w2) %>%
+  mutate(treatment = case_when(treatment == "control" ~ "Control",
+                               treatment == "lateral_reading" ~ "Lateral Reading",
+                               treatment == "online_search" ~ "Online Search"))%>%
+  pivot_longer(
+    cols = 1:7,
+    names_to = "Variable",
+    values_to = "Agreement"
+  ) %>% 
+  filter(Agreement == 1) %>%
+  count(Variable, Agreement, treatment) %>%
+  na.omit() %>%
+  mutate(Fill = ifelse(Variable %in% c("Lateral reading", "Online search"),
+                       Variable, "Other"))%>%
+  group_by(treatment)%>%
+         mutate(n_group = sum(n),
+           percentage = round(n/n_group*100,0),
+           percentage_label = paste0(round(n/n_group*100,0),"%"))
+
+
+strategy_nice <-  ggplot(strategy_data, aes(x = n, y = reorder(Variable, n), fill = Fill)) +
+  geom_col() +
+  geom_text(aes(label = ifelse(percentage >= 8, percentage_label, "")), hjust = 1.1, color = "white", size = 3) +
+  geom_text(aes(label = ifelse(percentage < 8, percentage_label, "")), hjust = -0.9, color = "black", size = 3) +
+  scale_fill_manual(values = c("Lateral reading" = "black", 
+                               "Online search" = "black", 
+                               "Other" = "grey60")) +
+  facet_wrap(. ~ treatment) +
+  labs(x = "Absolute count of selected options (multiple choice)", y = "", title = "Self-reported strategies (follow-up)") +
+  theme_bw(base_size = 12) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none")
+
+strategy_nice
+
+```

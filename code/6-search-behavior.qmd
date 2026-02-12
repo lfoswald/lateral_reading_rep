@@ -1,0 +1,72 @@
+---
+title: "Browsing & Technique Adoption"
+subtitle: "Open code and supplementary material to: Lateral Reading Germany"
+format:
+  html:
+    code-fold: true
+editor: visual
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+---
+
+```{r}
+library(urltools)
+library(tidyverse)
+library(readr)
+library(purrr)
+library(stringr)
+library(tidytext)
+
+tracking_time <- read_csv("../data/tracking_time.csv") # IDs randomized
+labled_seqs_minimal <- read_csv("../data/labled_seqs_minimal.csv")
+```
+
+## Experiment in Tracking Data
+
+```{r}
+tracking_experiment <- ggplot(tracking_time, aes(y = ID)) +
+  geom_rect(aes(xmin = starttime, xmax = endtime,
+                ymin = as.numeric(ID) - 0.5, ymax = as.numeric(ID) + 0.5),
+            fill = "lightgrey", color = NA, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = session_start_time, xmax = session_end_time,
+                ymin = as.numeric(ID) - 0.5, ymax = as.numeric(ID) + 0.5,
+                fill = factor(exp_website), color = factor(exp_website))) +
+  scale_fill_manual(values = c("orange", "black"), name = "Experiment") +
+  scale_color_manual(values = c("orange", "black"), name = "Experiment") +
+  scale_x_datetime(date_labels = "%Y-%m-%d", date_breaks = "1 week") +
+  labs(x = "", y = "Random Participant ID", title = "Tracking Data Experiment") +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+tracking_experiment
+```
+
+## Search positions
+
+```{r}
+search_position_plot_exp <- labled_seqs_minimal %>%
+  group_by(relative_click,condition) %>%
+  summarise(prop_search = mean(is_search)) %>%
+  ggplot(aes(x = relative_click, y = prop_search, color = condition, shape = condition)) +
+  geom_line() +
+  geom_point(fill = "white") +
+  scale_x_continuous(limits = c(1,50))+
+  scale_color_manual(labels = c("Control","Lateral reading","Online search"),
+                     values = c("darkgrey","black","black"), name = "Treatment")+
+  scale_shape_manual(labels = c("Control","Lateral reading","Online search"),
+                     values = c(16,17,22), name = "Treatment")+
+  labs(title = "Web search volume after visiting a target website",
+       x = "Relative click position after experimental website visit",
+       y = "Proportion of searches", color = "Treatment")+
+  theme_bw()+
+  theme(legend.position = "top",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+search_position_plot_exp
+
+```
