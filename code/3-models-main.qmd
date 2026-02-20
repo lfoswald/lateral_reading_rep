@@ -348,45 +348,26 @@ data_prefollow$claim_credibility <- ordered(data_prefollow$claim_credibility)
 
 # clmm
 
-#model_1s_clmm <- clmm(
-#  source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | #link_number),
-#  data = data_prepost,
-#  link = "logit",
-#  Hess = TRUE
-#)
-#saveRDS(model_1s_clmm, "output/main-experiment/models/model_1s_clmm.rda")
-model_1s_clmm <- readRDS("../models/model_1s_clmm.rda")
+model_1s_clmm <- clmm(source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
+  data = data_prepost,
+  link = "logit", Hess = TRUE)
 
-#model_2s_clmm <- clmm(
-#  source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | #link_number),
-#  data = data_prefollow,
-#  link = "logit",
-#  Hess = TRUE
-#)
-#saveRDS(model_2s_clmm, "output/main-experiment/models/model_2s_clmm.rda")
-model_2s_clmm <- readRDS("../models/model_2s_clmm.rda")
+model_2s_clmm <- clmm(source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
+  data = data_prefollow,
+  link = "logit",
+  Hess = TRUE)
 
 
-#model_1c_clmm <- clmm(
-#  claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
-#  data = data_prepost,
-#  link = "logit",
-#  Hess = TRUE
-#)
-#saveRDS(model_1c_clmm, "output/main-experiment/models/model_1c_clmm.rda")
-model_1c_clmm <- readRDS("../models/model_1c_clmm.rda")
+model_1c_clmm <- clmm(claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
+  data = data_prepost,
+  link = "logit",
+  Hess = TRUE)
 
-#model_2c_clmm <- clmm(
-#  claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
-#  data = data_prefollow,
-#  link = "logit",
-#  Hess = TRUE
-#)
-#saveRDS(model_2c_clmm, "output/main-experiment/models/model_2c_clmm.rda")
-model_2c_clmm <- readRDS("../models/model_2c_clmm.rda")
+model_2c_clmm <- clmm(  claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
+  data = data_prefollow,
+  link = "logit",
+  Hess = TRUE)
 
-
-# Tidy model output for plotting - CLMM
 trustworthiness_tidy_clmm <- tidy(model_1s_clmm) %>%
   mutate(rating_type = "Source Trustworthiness")
 
@@ -402,7 +383,6 @@ credibility_tidy2_clmm <- tidy(model_2c_clmm) %>%
 model_coefficients_clmm <- bind_rows(trustworthiness_tidy_clmm, credibility_tidy_clmm)
 model_coefficients2_clmm <- bind_rows(trustworthiness_tidy2_clmm, credibility_tidy2_clmm)
 
-# Numeric confidence intervals (90% CI)
 model_coefficients_clmm <- model_coefficients_clmm %>%
   mutate(ci_lower = estimate - std.error * (-qnorm((1-0.90)/2)),
          ci_upper = estimate + std.error * (-qnorm((1-0.90)/2)))
@@ -410,7 +390,6 @@ model_coefficients2_clmm <- model_coefficients2_clmm %>%
   mutate(ci_lower = estimate - std.error * (-qnorm((1-0.90)/2)),
          ci_upper = estimate + std.error * (-qnorm((1-0.90)/2)))
 
-#### Combined Plot for CLMM ####
 
 model_sc_combined_clmm <- bind_rows(
   model_coefficients_clmm %>% mutate(phase = "1. Pre-Post"),
@@ -449,121 +428,5 @@ effects_sc_combined_clmm <- ggplot(model_sc_combined_clmm, aes(x = estimate, y =
   guides(color = "none")
 
 effects_sc_combined_clmm
-
-```
-
-## Bayesian Models (BRMS)
-
-```{r}
-### brms
-
-#model_1s_brm <- brm(
-#  source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | #link_number),
-#  data = data_prepost,
-#  family = cumulative("logit"),
-#  chains = 4,
-#  cores = 4
-#)
-#saveRDS(model_1s_brm, "output/main-experiment/models/model_1s_brm.rda")
-model_1s_brm <- readRDS("../models/model_1s_brm.rda")
-
-
-#model_2s_brm <- brm(
-#  source_trustworthiness ~ item_type * phase * treatment + (1 + item_type + phase | ID) + (1 | #link_number),
-#  data = data_prefollow,
-#  family = cumulative("logit"),
-#  chains = 4,
-#  cores = 4
-#)
-#saveRDS(model_2s_brm, "output/main-experiment/models/model_2s_brm.rda")
-model_2s_brm <- readRDS("../models/model_2s_brm.rda")
-
-
-#model_1c_brm <- brm(
-#  claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase| ID) + (1 | link_number),
-#  data = data_prepost,
-#  family = cumulative("logit"),
-#  chains = 4,
-#  cores = 4
-#)
-#saveRDS(model_1c_brm, "output/main-experiment/models/model_1c_brm.rda")
-model_1c_brm <- readRDS("../models/model_1c_brm.rda")
-
-#model_2c_brm <- brm(
-#  claim_credibility ~ item_type * phase * treatment + (1 + item_type + phase | ID) + (1 | link_number),
-#  data = data_prefollow,
-#  family = cumulative("logit"),
-#  chains = 4,
-#  cores = 4
-#)
-#saveRDS(model_2c_brm, "output/main-experiment/models/model_2c_brm.rda")
-model_2c_brm <- readRDS("../models/model_2c_brm.rda")
-
-
-# Tidy model output for plotting - BRM
-trustworthiness_tidy_brm <- tidy(model_1s_brm) %>%
-  mutate(rating_type = "Source Trustworthiness") %>%
-  filter(effect == "fixed")
-
-credibility_tidy_brm <- tidy(model_1c_brm) %>%
-  mutate(rating_type = "Claim Credibility") %>%
-  filter(effect == "fixed")
-
-trustworthiness_tidy2_brm <- tidy(model_2s_brm) %>%
-  mutate(rating_type = "Source Trustworthiness") %>%
-  filter(effect == "fixed")
-
-credibility_tidy2_brm <- tidy(model_2c_brm) %>%
-  mutate(rating_type = "Claim Credibility") %>%
-  filter(effect == "fixed")
-
-model_coefficients_brm <- bind_rows(trustworthiness_tidy_brm, credibility_tidy_brm)
-model_coefficients2_brm <- bind_rows(trustworthiness_tidy2_brm, credibility_tidy2_brm)
-
-# Numeric confidence intervals (90% CI)
-model_coefficients_brm <- model_coefficients_brm %>%
-  mutate(ci_lower = estimate - std.error * (-qnorm((1-0.90)/2)),
-         ci_upper = estimate + std.error * (-qnorm((1-0.90)/2)))
-model_coefficients2_brm <- model_coefficients2_brm %>%
-  mutate(ci_lower = estimate - std.error * (-qnorm((1-0.90)/2)),
-         ci_upper = estimate + std.error * (-qnorm((1-0.90)/2)))
-
-#### Combined Plot for BRM ####
-
-model_sc_combined_brm <- bind_rows(
-  model_coefficients_brm %>% mutate(phase = "1. Pre-Post"),
-  model_coefficients2_brm %>% mutate(phase = "2. Pre-Followup")
-) %>%
-  mutate(term = case_when(
-    term == "item_type:phasepost:treatmentlateral_reading" ~ "Lateral Reading",
-    term == "item_type:phasepost:treatmentonline_search" ~ "Online Search",
-    term == "item_type:phasefollowMup:treatmentlateral_reading" ~ "Lateral Reading",
-    term == "item_type:phasefollowMup:treatmentonline_search" ~ "Online Search",
-    TRUE ~ as.character(term)
-  )) %>%
-  filter(term %in% c("Lateral Reading", "Online Search"))
-
-model_sc_combined_brm%>%
-  select(-effect,-component,-group,-conf.low,-conf.high)%>%
-  kbl(caption = "Treatment effects | bayesian models (BRMS)",format = "html",digits = 3,
-    col.names = c("Treatment", "Estimate", "SE","Outcome", "90% CI Lower", "90% CI Upper", "Phase")) %>%
-  kable_styling(latex_options = c("hold_position"))
-
-effects_sc_combined_brm <- ggplot(model_sc_combined_brm, aes(x = estimate, y = term, colour = phase)) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "black") + 
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = estimate - std.error * interval, xmax = estimate + std.error * interval), height = 0) +
-  facet_grid(rating_type ~ phase, scales = "free") +
-  labs(title = "Pre-Post and Pre-Follow-up Effects on Discernment (BRM)",
-       x = "Coefficient Estimate, 90% CI",
-       y = "") +
-  scale_color_manual(values = c("1. Pre-Post" = "black", "2. Pre-Followup" = "grey")) +
-  theme_bw(base_size = 12) +
-  coord_flip() +
-  theme(legend.position = "bottom") +
-  guides(color = "none")
-
-effects_sc_combined_brm
-
 
 ```

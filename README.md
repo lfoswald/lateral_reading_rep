@@ -13,8 +13,7 @@ The materials folder contains supplementary material provided along the manuscri
 The data folder contains two datasets:
 
 1. `exp_data.csv` to replicate any analyses based on survey responses (which include the outcomes of the experiment)
-2. `tracking_time.csv` allows the creation of an illustrative figure showing experimental websitevisits within the browsing sequences
-3. `labled_seqs_minimal.csv` provide a minimal dataframe to replicate Fig. 3D displaying relative positions of search following experimental website visits
+2. `labled_seqs_minimal.csv` provide a minimal dataframe to replicate Fig. 3D displaying relative positions of search following experimental website visits
 
 ## Code
 The code folder contains the following 6 Quarto files:

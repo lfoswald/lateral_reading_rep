@@ -92,7 +92,6 @@ data_individuals <- data_discernment%>%
                                            TRUE ~ NA_character_), levels = c("AfD rating: low", 
                                                                              "AfD rating: neutral", "AfD rating: high")),
          
-         knowledge_efficacy = (vote4_1 + vote4_1 + vote4_1)/3,
          att_regulate_imigration = issues1_1,
          att_nato_important = issues1_2,
          att_mitigate_climatec = issues1_3,
@@ -193,7 +192,6 @@ data_individuals_pre <- data_discernment%>%
                                            TRUE ~ NA_character_), levels = c("AfD rating: low", 
                                                                              "AfD rating: neutral", "AfD rating: high")),
          
-         knowledge_efficacy = (vote4_1 + vote4_1 + vote4_1)/3,
          att_regulate_imigration = issues1_1,
          att_nato_important = issues1_2,
          att_mitigate_climatec = issues1_3,
@@ -663,7 +661,7 @@ predictors
 
 #### Marginal Means
 
-```{r}
+```{r, fig.height = 10}
 predictors <- list("age_cat", "gender", "education_cat", "household_income_cat", "east_west",
                       "urban_cat", "political_interest_cat","vote_choice1", "left_right_cat", 
                        "AfD_rating_cat", "att_regulate_imigration_cat", "att_nato_important_cat", 
@@ -753,7 +751,7 @@ predicted_plot
 
 #### Marginal Means \| Pre-treatment only
 
-```{r}
+```{r,  fig.height = 10}
 predictors <- list("age_cat", "gender", "education_cat", "household_income_cat", "east_west",
                       "urban_cat", "political_interest_cat","vote_choice1", "left_right_cat", 
                        "AfD_rating_cat", "att_regulate_imigration_cat", "att_nato_important_cat", 
